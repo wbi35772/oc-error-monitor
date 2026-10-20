@@ -1,0 +1,70 @@
+{
+  "models": {
+    "opencode/deepseek-v4.1-flash-free": {
+      "联通-02": {
+        "rate": 0.4,
+        "samples": 10
+      },
+      "电信-01": {
+        "rate": 0.8,
+        "samples": 10
+      },
+      "联通-01": {
+        "rate": 0.6,
+        "samples": 10
+      },
+      "移动-01": {
+        "rate": 0.6,
+        "samples": 10
+      },
+      "多线-01": {
+        "rate": 0.8,
+        "samples": 10
+      },
+      "电信-21": {
+        "rate": 0.3333,
+        "samples": 6
+      }
+    }
+  },
+  "results": [
+    {
+      "node": "多线-01",
+      "rate": 0.8
+    },
+    {
+      "node": "电信-01",
+      "rate": 0.8
+    },
+    {
+      "node": "电信-21",
+      "rate": 0.3333
+    },
+    {
+      "node": "移动-01",
+      "rate": 0.6
+    },
+    {
+      "node": "联通-01",
+      "rate": 0.6
+    },
+    {
+      "node": "联通-02",
+      "rate": 0.4
+    }
+  ],
+  "model_results": {
+    "opencode/deepseek-v4.1-flash-free": {
+      "rate": 0.5,
+      "samples": 8
+    },
+    "openrouter/minimax/minimax-m3.1-flash:free": {
+      "rate": 1.0,
+      "samples": 8
+    },
+    "opencode/minimax-m3.1-flash-free": {
+      "rate": 0.375,
+      "samples": 8
+    }
+  }
+}

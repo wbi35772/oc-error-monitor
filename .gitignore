@@ -1,0 +1,22 @@
+# Each repository is cloned as an independent git repository.
+# Keep this workspace repo free of their contents.
+/wirewatch/
+/simple-netmon/
+/openprocmon/
+/systeminformer/
+
+# Local toolchains, caches and build output
+/.tools/
+/.venv/
+/dist/
+*.log
+
+# Resilience runtime state (session ids, local paths, cursors).
+# node-scores.json is measured reference data and IS tracked.
+/logs/resilience/events-*.jsonl
+/logs/resilience/actions-*.jsonl
+/logs/resilience/*-state.json
+
+# Local skill config copies
+*.bak
+
