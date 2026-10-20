@@ -71,6 +71,15 @@
   - 认证：OpenChamber 生成的托管密码只在内存里（每次启动轮换），用 `read_proc_env.py`
     从 OpenChamber 进程环境读 `OPENCODE_SERVER_PASSWORD`，全程不落盘。
 - **P2/P3 默认都是 dry-run**，任何写操作都要显式 `--apply`。
+- **P4 已实施**（2026-10-20）：请求层重试代理 `tools/oc-error-monitor/retry_proxy.py`
+  （127.0.0.1:8787），把 IP 信誉 403 / 429 / 5xx / 空流在**单次请求内**救回。
+  - 前提：抓包证明「身份闸 403」与「IP 信誉 403」必须分开，前者由请求形状决定，后者逐请求随机。
+  - 代理原样透传客户端请求（保住身份闸），只在尚未写出任何字节时重试。
+  - 44 个 free 模型已通过 `provider.<id>.models.<model>.provider.api` 指向代理。
+  - 常驻：计划任务（每分钟）→ `start-retry-proxy.bat` → `supervisor.py` → `retry_proxy.py`；
+    崩溃自愈 3.2 秒，单实例用文件锁（Windows `SO_REUSEADDR` 不可靠）。
+  - 隔离测试环境 `tools/oc-error-monitor/testenv/`：mock 网关 + 26 断言全绿，不碰 Clash、不碰真网关。
+  - 详见第 8 节 P4。
 
 ## 1. 已确认的事实与证据
 
@@ -487,6 +496,52 @@ OpenChamber → LiteLLM/FastAPI gateway → provider A / B / local
 - OpenChamber 指向网关；保留直连 provider 作为回退。
 - 验收：主供应商 5xx/429 时自动 fallback；会话不中断；密钥隔离；审计可追溯。
 
+### P4：请求层重试代理（2026-10-20 已落地）
+
+P1–P3 都发生在**会话之后**。抓包证明有一类错误在**单次请求内**就能救回，
+所以加一层比会话更快的缓解。
+
+**前提：先把两个 403 分开。**
+
+| 现象 | 错误文本 | 性质 | 处置 |
+|---|---|---|---|
+| 身份闸 | `FreeTierError: free tier can only be used from within OpenCode` | 由请求形状决定，同字节重放 100% 复现 | 不重试；改请求形状 |
+| IP 信誉 | `FreeTierError: ... detected abusive traffic from this IP address` | 逐请求随机 | 重放即救回 |
+
+**身份闸的成立条件**（抓包 + 变换实验逐条确认）：端点
+`https://opencode.ai/inference/openai/v1/chat/completions`；UA 必须三段
+`opencode/<channel>/<version>/<client>`；`Authorization: Bearer public`；
+`x-opencode-client: cli`；body 必须 `"stream": true`；需要 `x-opencode-project`（32 hex）
+与 `x-opencode-session*`（`ses_...`）之一；body 内容结构要像真实 opencode 请求。
+结论：代理**只能原样透传**客户端的头和 body，自己造请求必被身份闸拦掉。
+
+**随机性测量**（同一份字节重放 24 次）：19 OK / 5 IP_REP = 79% 成功率；
+`P(ok|上次失败)=3/4`；3 次内恢复 4/5；最长连续失败 2。
+=> IP 信誉 403 是逐请求瞬时错误，请求层重试足够，不需要换节点/换模型/改会话。
+
+**代理行为**（`tools/oc-error-monitor/retry_proxy.py`，127.0.0.1:8787 → mihomo 7899 → 网关）：
+
+- 200 → `read1` 无缓冲流式透传；
+- 200 但空流 → 重试（此时还没写给客户端任何字节）；
+- 403 abusive / 429 / 5xx / 连接错误 → 退避重试（0.4/1.0/1.8s + 抖动，最多 4 次尝试）；
+- mihomo 拒连 → 剩余尝试转直连；
+- 403 identity → 直接透传，不重试；
+- SSE 已经开始后被上游截断 → 只观测（`truncated_streams`）不重放，避免重复内容。
+
+**注入点**：唯一可用的是 `provider.<id>.models.<model>.provider.api`
+（`provider.opencode.options.baseURL` 与 `provider.opencode.api` 均无效；
+`OPENCODE_MODELS_PATH` 有效但会冻结模型目录）。44 个 free 模型已指向本地代理。
+
+**常驻与自愈**：计划任务（每分钟）→ `start-retry-proxy.bat` → `supervisor.py` → `retry_proxy.py`。
+单实例用文件锁（`retry_proxy-<port>.lock`）——Windows socket 默认 `SO_REUSEADDR`，
+第二个进程能绑上同一端口并抢走连接，文件锁才靠得住。
+崩溃自愈实测 3.2 秒；手动重启实测停机 2.9 秒（`restart-retry-proxy.ps1` 会打印该时长）。
+
+**验收证据**：
+- 隔离测试环境 `tools/oc-error-monitor/testenv/`：mock 网关 + 8 场景 / 26 断言全绿，
+  不碰 Clash、不碰真网关；
+- 线上：10 次 `opencode run` 全成功；16 请求 / 25 尝试 / 7 次需重试 / 7 次救回 / 0 耗尽。
+
 ## 9. 验收标准（总）
 
 - 正确性：授权/配额类错误 0 次自动网络切换。
@@ -540,6 +595,15 @@ OpenChamber → LiteLLM/FastAPI gateway → provider A / B / local
 
 - P1/P2/P3 均已实施并有实测证据；下一步是把 `--apply` 打开并观察误报，
   同时用 `probe_matrix.py` 定期刷新 `node-scores.json`（节点和模型质量都会漂移）。
+- **P4 已实施**（请求层重试代理）。它改变了分层顺序的性价比：
+  IP 信誉 403 现在在**单次请求内**被救回，不再需要 P2 切节点或 P3 换模型；
+  P2/P3 的适用范围收缩到「重试也救不回来」的持续性故障。
+- **P4 之后仍待处理**：
+  - SSE 中途被上游截断（客户端报 `stream ended without finish_reason`）目前**只观测不重试**，
+    因为字节已经写到客户端，重放会产生重复内容。要彻底解决需要客户端侧支持「流中断后续传」，
+    或在更靠前的一层（CLI 内部）实现。
+  - 代理目前是**单进程**，升级时代停机约 3 秒。若要做到零停机，
+    需要把监听 socket 固定在一个常驻前端进程里，代理作为其后端热切换。
 - **已完成的清理**：
   - OpenChamber 项目默认模型 → `openrouter/minimax/minimax-m3.1-flash:free`（实测 100%），已验证 `DEFAULT_OK`；
   - 运行中进程残留的 `eac` 小模型随 OpenCode 重启消失，`small-model-unavailable` 503 从 00:46 起不再出现；

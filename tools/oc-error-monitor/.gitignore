@@ -1,0 +1,10 @@
+# Retry proxy runtime files
+retry_proxy.log.jsonl
+retry_proxy*.lock
+supervisor.log
+supervisor.out.log
+retry_proxy.out.log
+retry_proxy.err.log
+
+# Test harness scratch
+testenv/_run/

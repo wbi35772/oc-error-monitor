@@ -1,4 +1,4 @@
-# OpenChamber 会话韧性（P1 监控 / P2 节点切换 / P3 每会话换模型）
+# OpenChamber 会话韧性（P1 监控 / P2 节点切换 / P3 每会话换模型 / P4 请求重试）
 
 这个目录把 OpenChamber/OpenCode 的错误读出来、分类、落盘，并按错误类型做**分层**缓解：
 
@@ -7,6 +7,7 @@
 | P1 `monitor.py` | 只读 | 读 `opencode.db` + `main.log`，分类落盘 | 永远只读 |
 | P2 `controller.py` | 全局（一个 Clash 选择组） | 对瞬时网络错误切 mihomo 节点 | dry-run |
 | P3 `session_failover.py` | **单个会话** | 只给卡住的会话换模型 | dry-run |
+| P4 `retry_proxy.py` | **单次请求** | 对 IP 信誉 403 / 429 / 5xx 重放同一份请求 | 常驻 127.0.0.1:8787 |
 
 ## 文件
 
@@ -27,6 +28,14 @@
 - `start-controller-apply.bat`：启动 P2 控制器（真实切节点，带预算/冷却）。
 - `start-failover-dryrun.bat`：启动 P3 每会话换模型（只看不做）。
 - `start-failover-apply.bat`：启动 P3 每会话换模型（真的改会话模型）。
+- `retry_proxy.py`：P4 重试代理；把 OpenCode 指向 `http://127.0.0.1:8787/v1`，
+  对 IP 信誉 403 / 429 / 5xx / 连接错误 / 200 空流重放同一份请求。
+- `supervisor.py`：P4 看门狗；代理崩了 1 秒内拉起，计划任务只作最后一道网。
+- `start-retry-proxy.bat`：启动 P4（幂等，端口已在监听就直接退出）。
+- `restart-retry-proxy.ps1`：带停机测量地重启 P4（只杀自己的进程）。
+- `install-watchdog.bat`：装每分钟一次的计划任务（无窗口）。
+- `wire_retry_proxy.py`：把 44 个 free 模型的 `provider.api` 指向本地代理。
+- `testenv/`：**隔离测试环境**，自带 mock 网关，不碰 Clash、不碰真网关。
 
 ## 用法
 
@@ -342,6 +351,134 @@ P3 的 40% 误报代价也小（只动一个会话的模型，而且 fallback �
 - `opencode.json` 的 `disabled_providers: ["eac","deepseek-web"]` 保持不变；
   之前运行中进程残留的 `small_model: eac/...` 已随 OpenCode 重启消失，
   `small-model-unavailable` 503 从 2026-10-20 00:46 起不再出现。
+
+## P4 请求层重试代理（2026-10-20）
+
+P1–P3 都是**会话之后**的缓解：等错误已经发生，再决定换节点还是换模型。
+但这次抓包发现，有一类错误根本不用等到会话层——**它在单次请求内就可以重试**。
+
+### 关键发现：两个 403 完全不是一回事
+
+| 现象 | 错误文本 | 性质 | 正确处理 |
+|---|---|---|---|
+| 身份闸 | `FreeTierError: free tier can only be used from within OpenCode` | **由请求形状决定**，重放同样的字节 100% 复现 | 重试没用，得改请求 |
+| IP 信誉 | `FreeTierError: ... detected abusive traffic from this IP address` | **逐请求随机**，同字节重放时好时坏 | 重放即可救回 |
+
+把这两类混为一谈，就会得出「IP 信誉错误要换节点」这种错误结论。
+
+### 身份闸的精确条件（抓包 + 变换实验确认）
+
+| 条件 | 说明 |
+|---|---|
+| 端点 | `https://opencode.ai/inference/openai/v1/chat/completions` |
+| `User-Agent` | `opencode/<channel>/<version>/<client>`，**三段**；`opencode/2.0.32` 这类两段不行；没有 UA 先被 Cloudflare 1010 拦 |
+| `Authorization` | `Bearer public` |
+| `x-opencode-client` | `cli` |
+| body | 必须 `"stream": true`（`stream:false` 稳定复现身份闸） |
+| 会话头 | `x-opencode-project`（32 hex）+ `x-opencode-session` / `x-opencode-session-id` / `x-session-affinity` / `x-session-id`（`ses_...`）之一 |
+| body 内容 | 必须是真实 opencode 请求：把抓到的 2375 字节原样重放稳定 200；把 system 内容换成等长 `x` 或缩短，稳定复现身份闸 |
+
+另外 7 个 `x-opencode-*` 头都在二进制里：
+`client` / `directory` / `parent-session-id` / `project` / `session` / `session-id` / `ticket`
+（`x-opencode-ticket` 是 PTY connect token，与网关无关）。
+
+**所以代理必须原样透传客户端的头和 body**——自己造请求一定会被身份闸拦掉。
+
+### 随机性到底有多大
+
+同一份字节重放 24 次：
+
+```text
+19 OK / 5 IP_REP  →  成功率 79%
+P(ok | 上一次失败) = 3/4
+3 次之内恢复       = 4/5
+最长连续失败       = 2
+```
+
+结论：IP 信誉 403 是**逐请求瞬时错误**，请求层重试就能救回，
+不需要换节点、不需要改会话状态、不需要换模型。
+
+### 代理做什么
+
+```text
+opencode CLI ──► 127.0.0.1:8787 ──► mihomo(7899) ──► opencode.ai
+                     │
+                     ├─ 原样转发请求头与 body（保住身份闸）
+                     ├─ 200            → read1 流式透传，零缓冲
+                     ├─ 200 但空流      → 重试（还没写给客户端任何字节）
+                     ├─ 403 abusive     → 退避重试（0.4/1.0/1.8s + 抖动）
+                     ├─ 429 / 5xx       → 退避重试
+                     ├─ 连接错误        → 退避重试；mihomo 拒连则转直连
+                     └─ 403 identity    → 直接透传，不重试
+```
+
+**只在还没往客户端写过一个字节时才重试**。一旦流已经开始（SSE 截断），
+重放会产生重复内容，所以只观测（`truncated_streams`）不重试。
+
+### 常驻与自愈
+
+```text
+计划任务（每分钟）──► start-retry-proxy.bat ──► supervisor.py ──► retry_proxy.py
+                            │                       │                    │
+                            │                       └── 代理崩了 1 秒内拉起 │
+                            └── 端口已在监听就直接退出（幂等）            └── 单实例锁
+```
+
+- 单实例用**文件锁**（`retry_proxy-<port>.lock`）。Windows socket 默认带
+  `SO_REUSEADDR`，第二个进程能绑上同一个端口并抢走连接——文件锁才靠得住。
+- 崩溃自愈实测 **3.2 秒**（杀掉代理子进程 → supervisor 拉起），原来要等最多 60 秒。
+- 手动重启用 `restart-retry-proxy.ps1`，它会打印**实际停机时长**（实测 2.9 秒）。
+
+```powershell
+# 启动 / 幂等
+tools\oc-error-monitor\start-retry-proxy.bat
+
+# 带停机测量地重启
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\oc-error-monitor\restart-retry-proxy.ps1
+
+# 看统计
+Invoke-RestMethod http://127.0.0.1:8787/__stats | ConvertTo-Json
+
+# 装/卸每分钟看门狗
+tools\oc-error-monitor\install-watchdog.bat
+schtasks /Delete /TN "OpenCode Retry Proxy" /F
+```
+
+### 怎么让 OpenCode 走代理
+
+唯一可用的注入点是 `provider.<id>.models.<model>.provider.api`：
+
+```text
+provider.opencode.options.baseURL  ❌ 无效
+provider.opencode.api               ❌ 无效
+OPENCODE_MODELS_PATH                ✅ 有效，但会把模型目录冻结
+provider.<id>.models.<model>.provider.api  ✅ 有效（44 个 free 模型都指向 127.0.0.1:8787/v1）
+```
+
+`wire_retry_proxy.py` 负责写这份配置（改前自动备份）。
+
+### 实测
+
+| 场景 | 请求 | 尝试 | 需重试 | 救回 | 耗尽 | 失败 |
+|---|---|---|---|---|---|---|
+| 6 次 `opencode run` | 16 | 25 | 7 | 7 | 0 | 0 |
+| 4 次（新代码） | 9 | 13 | 3 | 3 | 0 | 0 |
+
+分类计数：`OK:9, IP_REP:4`——**没有一次 IP 信誉错误漏到客户端**。
+
+### 隔离测试环境（`testenv/`）
+
+`testenv/mock_gateway.py` 是一个假网关，复制真网关的所有脾气
+（IP 信誉 403、身份闸 403、429、503、空流、SSE 截断），并强制真实的请求形状规则。
+`testenv/test_retry_proxy.py` 用它跑 8 个场景 / 26 项断言：
+
+```powershell
+python tools\oc-error-monitor\testenv\test_retry_proxy.py
+# 26/26 checks passed
+```
+
+整个测试**不碰 Clash、不碰真网关、不碰你的任何配置文件**，
+代理副本跑在 `testenv/_run/`，日志也落在那里。
 
 ## 技能 frontmatter 修复
 

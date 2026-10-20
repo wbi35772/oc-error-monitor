@@ -51,6 +51,19 @@ echo.
 echo  WireWatch      http://127.0.0.1:8080
 echo  Simple NetMon  http://127.0.0.1:8888
 echo.
+
+rem The OpenCode free models are routed through the P4 retry proxy on 8787.
+rem Trigger the scheduled task so the proxy keeps running with the normal user
+rem token instead of being started elevated from this script.
+schtasks /Query /TN "OpenCode Retry Proxy" >nul 2>&1
+if not errorlevel 1 (
+    schtasks /Run /TN "OpenCode Retry Proxy" >nul 2>&1
+    echo  [ok]   OpenCode retry proxy task triggered ^(127.0.0.1:8787^)
+) else (
+    echo  [skip] OpenCode Retry Proxy task not installed - run tools\oc-error-monitor\install-watchdog.bat
+)
+
+echo.
 echo  Note: each tool opens its own window. Close a window to stop that tool.
 timeout /t 6 >nul
 endlocal
