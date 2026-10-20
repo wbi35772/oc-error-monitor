@@ -20,3 +20,7 @@
 # Local skill config copies
 *.bak
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+
