@@ -24,7 +24,18 @@ if errorlevel 1 (
     exit /b 1
 )
 
+rem Second net for the reboot case: the minute task only runs while the
+rem machine is up, so a logon trigger brings the proxy back immediately.
+rem ONLOGON tasks need elevation, so this usually only works from start-all.bat.
+set "TASK_LOGON=%TASK% (logon)"
+schtasks /Create /TN "%TASK_LOGON%" /TR "wscript.exe //B //Nologo %RUNDIR%\run-hidden.vbs" /SC ONLOGON /F >nul 2>&1
+if errorlevel 1 (
+    echo  [note] logon trigger needs admin rights - start-all.bat creates it
+) else (
+    echo  [ok] logon trigger installed: "%TASK_LOGON%"
+)
+
 schtasks /Run /TN "%TASK%" >nul 2>&1
 echo  [ok] watchdog installed: "%TASK%" (every 1 minute, hidden)
 echo  [ok] run now:   schtasks /Run /TN "%TASK%"
-echo  [ok] remove:    schtasks /Delete /TN "%TASK%" /F
+echo  [ok] remove:    schtasks /Delete /TN "%TASK%" /F  ^&  schtasks /Delete /TN "%TASK_LOGON%" /F

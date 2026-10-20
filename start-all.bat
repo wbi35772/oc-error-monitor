@@ -63,6 +63,17 @@ if not errorlevel 1 (
     echo  [skip] OpenCode Retry Proxy task not installed - run tools\oc-error-monitor\install-watchdog.bat
 )
 
+rem This script is elevated, so it can add the logon trigger that a normal
+rem user cannot create: the proxy comes back right after a reboot.
+if exist "%USERPROFILE%\.config\opencode\resilience\run-hidden.vbs" (
+    schtasks /Create /TN "OpenCode Retry Proxy (logon)" /TR "wscript.exe //B //Nologo %USERPROFILE%\.config\opencode\resilience\run-hidden.vbs" /SC ONLOGON /F >nul 2>&1
+    if not errorlevel 1 (
+        echo  [ok]   OpenCode retry proxy logon trigger installed
+    ) else (
+        echo  [skip] OpenCode retry proxy logon trigger could not be created
+    )
+)
+
 echo.
 echo  Note: each tool opens its own window. Close a window to stop that tool.
 timeout /t 6 >nul
