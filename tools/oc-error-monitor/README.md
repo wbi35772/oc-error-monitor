@@ -15,6 +15,8 @@
 - `controller.py`：P2 控制器；tail P1 的 JSONL，按错误类型决定是否切节点；默认 dry-run。
 - `test_controller.py`：控制器策略/候选过滤/打分排序测试（16 个用例，不联网）。
 - `probe_matrix.py`：**测量**每个节点/模型的免费模型成功率，写入 `logs/resilience/node-scores.json`。
+- `backtest.py`：**用历史数据验证策略**。读 `opencode.db` 里过去所有会话的成功/失败记录，
+  回放策略，算出“误报率”和“漏掉了多少真正卡死的会话”。不用等一周 dry-run。
 - `session_failover.py`：P3 每会话换模型；调用 OpenCode API `POST /api/session/{id}/model`；默认 dry-run。
 - `read_proc_env.py`：从运行中的进程读取环境变量（用于取 OpenCode 服务密码，密码不落盘）。
 - `check_skill_frontmatter.py`：扫描 `~/.config/opencode/skills/**/SKILL.md`，找出会让 OpenChamber 刷警告的 YAML frontmatter。
@@ -157,11 +159,11 @@ python controller.py --once --from-start `
 | 错误类 | 动作 |
 |---|---|
 | `NET_DNS` / `NET_CONNECT` / `NET_STREAM` / `NET_TIMEOUT` | 允许切节点 |
-| `AUTH_IP_REPUTATION` | **间歇性**：先重试；600s 内同一类失败 ≥3 次才允许切节点 |
-| `AUTH_FREE_TIER` | **不切**；记录并提示换供应商/用 OpenCode 本体 |
+| `AUTH_IP_REPUTATION` | **交给 P3**（每会话换模型）；不动全局节点 |
+| `AUTH_FREE_TIER` | **交给 P3**；记录并提示换供应商/用 OpenCode 本体 |
 | `AUTH_CREDENTIAL` / `NET_TLS` | **不切**；记录并提示修凭据/证书 |
 | `RATE_LIMIT` / `UPSTREAM_5XX` | **不切**；退避/上游 failover |
-| `LOCAL_RELAY` | **不切**；启动本地反代或换供应商 |
+| `LOCAL_RELAY` | **交给 P3**；启动本地反代或换供应商 |
 | `CLIENT_REQUEST` / `ABORTED` / `UNKNOWN` | 不切；记录 |
 
 ### 护栏
@@ -252,6 +254,83 @@ DIRECT 路径 5 次全部 403（真·封禁），这条结论仍然成立。
 | `opencode/minimax-m3.1-flash-free` | 3/8 (38%) |
 
 结果写进 `node-scores.json` 的 `model_results` 段，P3 会按这个排序自动挑 fallback。
+
+## 历史回测（`backtest.py`）：不用等一周
+
+报错数据本来就在 `opencode.db` 里 —— 每条 assistant 消息都带 `error` 字段（失败）
+或 `finish: "stop"`（成功）。所以策略可以**直接拿真实历史回放**，不必等 dry-run 攒数据。
+
+```powershell
+# 回放当前策略，输出误报率
+python tools\oc-error-monitor\backtest.py
+
+# 顺便扫一遍阈值
+python tools\oc-error-monitor\backtest.py --sweep
+```
+
+**判定标准**：每个错误看它**下一次尝试**的结果。
+
+- 下一次就成功了 → 错误是瞬时的，这次动作是**误报**；
+- 下一次还是失败 → 错误持续，这次动作**有依据**；
+- 再没有下一次尝试 → **会话直接死了**，这才是最该救的情况。
+
+### 实测结果（2026-10-18 06:02 → 2026-10-20 07:36，135 会话 / 150 个错误）
+
+| 错误类 | 错误数 | 会话直接死 | 下次仍失败 | 下次就成功 |
+|---|---|---|---|---|
+| `AUTH_IP_REPUTATION` | 100 | **52** | 9 | 39 |
+| `NET_STREAM` | 39 | 0 | 27 | 12 |
+| `UNKNOWN` | 4 | 0 | 0 | 4 |
+| `ABORTED` | 3 | 1 | 0 | 2 |
+| `AUTH_FREE_TIER` | 2 | 0 | 0 | 2 |
+| `NET_CONNECT` | 1 | 0 | 1 | 0 |
+| `NET_TLS` | 1 | 1 | 0 | 0 |
+
+### 这次回测推翻了两个原本的判断
+
+**1. “等攒够 3 次再切” 是错的。**
+52 个死掉的会话里，**51 个只出现过一次** `AUTH_IP_REPUTATION` 就死了 ——
+因为第一次 403 之后用户就放弃了，根本没有第二次机会。
+回放证明：按“攒够 3 次”触发的那 6 次，**6 次全是误报**（那些会话本来就在恢复），
+而真正需要救的 52 个，**一个都没被覆盖到**。
+
+**2. `AUTH_IP_REPUTATION` 不该由切节点来处理，应该由每会话换模型来处理。**
+- 那 52 个死掉的会话中，**46 个在 5 分钟内新开了一个会话**（用户放弃了重来）。
+  其中 **18 个新会话又立刻死了** —— 死亡螺旋。
+- 换节点的修复率是 33%-83%（最好的节点），换模型的修复率是 **100%**（8/8 实测）。
+- 而且换节点会动**所有会话**的出口，换模型只动**一个会话**。
+
+所以现在：
+
+```text
+P2 controller.py       NET_* 四类           -> 切全局节点
+                       AUTH_IP_REPUTATION  -> 不动，交给 P3
+P3 session_failover.py AUTH_IP_REPUTATION  -> 第一次就换该会话的模型
+                       AUTH_FREE_TIER      -> 换模型
+                       LOCAL_RELAY         -> 换模型
+```
+
+`test_controller.py` 里有 6 个用例保证两层不会重复管同一类、也不会有类没人管。
+
+### 分层后的回测结果
+
+```text
+P2 node switch     :   40 actions,  12 FP ( 30%),   0 stalled sessions
+P3 model switch    :  102 actions,  41 FP ( 40%),  52 stalled sessions
+```
+
+P2 的 30% 误报可以接受（它只动网络，误报代价是节点换了一次）。
+P3 的 40% 误报代价也小（只动一个会话的模型，而且 fallback 是实测 100% 的那个），
+换来的是**覆盖全部 52 个卡死的会话**。
+
+### 顺带发现：默认模型切换后错误率下降
+
+```text
+00:00 - 07:05（旧默认 opencode/deepseek-v4.1-flash-free）  error rate  9.1%  44 个会话死
+07:05 - 现在（新默认 openrouter/minimax/minimax-m3.1-flash:free）  error rate  3.3%   6 个会话死
+```
+
+（窗口长度不同且含我自己的测试流量，所以这是信号不是严格对照。）
 
 ### 已生效的配置改动（2026-10-20）
 

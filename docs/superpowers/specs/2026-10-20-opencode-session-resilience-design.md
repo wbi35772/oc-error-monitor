@@ -48,16 +48,21 @@
 ### 实施状态（2026-10-20）
 
 - **P1 已实施**：`tools/oc-error-monitor/monitor.py`，只读轮询 `opencode.db` + tail `main.log`，输出 JSONL；`test_classify.py` 8/8 通过。
-- **P2 已实施**：`tools/oc-error-monitor/controller.py`，tail P1 JSONL，默认 dry-run；`test_controller.py` **19/19 通过**。
+- **P2 已实施**：`tools/oc-error-monitor/controller.py`，tail P1 JSONL，默认 dry-run；`test_controller.py` **24/24 通过**。
   - 节点排序改为优先读 `logs/resilience/node-scores.json`（实测成功率），延迟只作存活过滤。
   - mihomo 缓存的 `alive` 标志会滞后：有实测分数的节点即使被标记 dead 也保留在候选里，
     但仍需通过实时健康探测才会被切过去。
-  - `AUTH_IP_REPUTATION` 改为「先重试」：600s 内同类失败 ≥3 次才允许切节点。
+  - `AUTH_IP_REPUTATION` / `AUTH_FREE_TIER` / `LOCAL_RELAY` **不再切全局节点**，交给 P3
+    每会话换模型（依据见 1.7 节回测：51/52 个卡死会话只出现过一次 403，
+    “攒够 3 次”会全部漏掉；且换模型修复率 100% vs 换节点 33%-83%）。
   - dry-run 用影子状态模拟同一套预算，预览与 `--apply` 一致，且不消耗真实预算。
+  - 支持 `--event-time`：历史回放时用事件自身的时间戳算预算窗口，
+    否则两天的历史会被压成同一瞬间。
 - **P2 实测**：
   - `--list-candidates`：组 `🎯 OpenCode专用`，218 成员、125 个叶子候选；带打分时选 `多线-01`（80%）而不是更快的 `联通-03`。
   - `--self-test`：`PUT '🎯 OpenCode专用' -> 当前节点` 返回 HTTP 204，写路径可用且不改变选择。
-  - 临时事件回放：`AUTH_IP_REPUTATION` 前两次 NOOP（“intermittent; retry first”），第三次 `WOULD_SWITCH 联通-02 -> 多线-01`。
+  - 临时事件回放：`NET_STREAM -> WOULD_SWITCH 联通-02 -> 多线-01`；
+    `AUTH_IP_REPUTATION -> NOOP（交给 P3）`。
 - **实测工具**：`tools/oc-error-monitor/probe_matrix.py` —— 逐节点/逐模型测量成功率，
   同时记录 gstatic 延迟用于对比；结果写入 `logs/resilience/node-scores.json` 供控制器使用。
 - **P3 已实施**：`tools/oc-error-monitor/session_failover.py` —— 只给卡住的会话换模型。
@@ -161,6 +166,60 @@ openrouter provider settings: { baseURL: "https://openrouter.ai/api/v1" }
 
 `opencode` 与 `openrouter` 两个 provider 都不需要用户登录或提供 Key，
 `:free` / `-free` 后缀的模型可以直接调用。这一点与用户“不用登录任何账号”的约束一致。
+
+### 1.7 2026-10-20 历史回测：报错数据本来就在盘上
+
+`opencode.db` 的 `session_message` 表保存了每条 assistant 消息：
+失败带 `error` 字段，成功带 `finish: "stop"`。
+所以策略不必等 dry-run 攒够数据，可以直接拿真实历史回放（`backtest.py`）。
+
+样本：2026-10-18 06:02 → 2026-10-20 07:36，135 个会话，150 个错误。
+
+判定标准是**该错误的下一次尝试**的结果：下次就成功 → 瞬时错误，这次动作是误报；
+下次仍失败 → 错误持续，动作有依据；再无尝试 → 会话直接死了。
+
+| 错误类 | 错误数 | 会话直接死 | 下次仍失败 | 下次就成功 |
+|---|---|---|---|---|
+| `AUTH_IP_REPUTATION` | 100 | **52** | 9 | 39 |
+| `NET_STREAM` | 39 | 0 | 27 | 12 |
+| `UNKNOWN` | 4 | 0 | 0 | 4 |
+| `ABORTED` | 3 | 1 | 0 | 2 |
+| `AUTH_FREE_TIER` | 2 | 0 | 0 | 2 |
+| `NET_CONNECT` | 1 | 0 | 1 | 0 |
+| `NET_TLS` | 1 | 1 | 0 | 0 |
+
+**回测推翻了原方案的两个判断：**
+
+1. **“攒够 3 次再切节点”是错的。**
+   52 个死掉的会话里 **51 个只出现过一次** `AUTH_IP_REPUTATION` 就死了 ——
+   第一次 403 之后用户就放弃，根本没有第二次机会。
+   按“攒够 3 次”触发的那 6 次动作，**6 次全是误报**（那些会话本来就在恢复），
+   而真正需要救的 52 个**一个都没覆盖到**。
+
+2. **`AUTH_IP_REPUTATION` 不该由切节点处理，该由每会话换模型处理。**
+   - 52 个死掉的会话中，**46 个在 5 分钟内新开会话**（用户放弃重来），
+     其中 **18 个新会话又立刻死了** —— 死亡螺旋。
+   - 换节点的修复率 33%-83%，换模型的修复率 **100%**（8/8 实测）。
+   - 换节点动**所有会话**的出口；换模型只动**一个会话**。
+
+于是分工改成：
+
+```text
+P2 controller.py       NET_DNS / NET_CONNECT / NET_STREAM / NET_TIMEOUT  -> 切全局节点
+                       AUTH_IP_REPUTATION / AUTH_FREE_TIER / LOCAL_RELAY  -> 不动，交给 P3
+P3 session_failover.py AUTH_IP_REPUTATION / AUTH_FREE_TIER / LOCAL_RELAY  -> 第一次就换该会话的模型
+```
+
+分层后的回测：
+
+```text
+P2 node switch     :   40 actions,  12 FP ( 30%),   0 stalled sessions
+P3 model switch    :  102 actions,  41 FP ( 40%),  52 stalled sessions
+```
+
+P3 的 40% 误报代价小（只动一个会话的模型，fallback 是实测 100% 的那个），
+换来的是覆盖全部 52 个卡死的会话。`test_controller.py` 有 6 个用例保证
+两层不会重复管同一类、也不会有类没人管。
 
 ## 2. 目标与非目标
 

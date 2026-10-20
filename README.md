@@ -201,9 +201,10 @@ git -c http.proxy= -c https.proxy= pull
 | 层 | 工具 | 作用域 | 手段 |
 |---|---|---|---|
 | P1 | `monitor.py` | 只读 | 读 `opencode.db` + `main.log`，把错误分类落盘 |
-| P2 | `controller.py` | 全局 | 对持续失败的网络错误切 `🎯 OpenCode专用` 节点 |
+| P2 | `controller.py` | 全局 | 对网络类错误切 `🎯 OpenCode专用` 节点 |
 | P3 | `session_failover.py` | **单会话** | 只给卡住的会话换模型，不动全局网络 |
 | 测量 | `probe_matrix.py` | — | 反复实测节点/模型成功率，写 `node-scores.json` |
+| 回测 | `backtest.py` | — | **拿历史数据回放策略**，算误报率，不用等一周 |
 
 全部默认 dry-run，写入要显式 `--apply`。详细说明和实测数据见
 [`tools/oc-error-monitor/README.md`](tools/oc-error-monitor/README.md)，
@@ -216,6 +217,9 @@ python tools\oc-error-monitor\monitor.py --once --backfill 20
 # 测量哪个节点/模型最稳（会临时切节点，测完恢复）
 python tools\oc-error-monitor\probe_matrix.py --nodes 4 --attempts 6
 
+# 拿历史报错数据回放策略，看误报率
+python tools\oc-error-monitor\backtest.py --sweep
+
 # 只看不做：切节点 / 换模型
 python tools\oc-error-monitor\controller.py --follow
 python tools\oc-error-monitor\session_failover.py --follow
@@ -227,6 +231,11 @@ python tools\oc-error-monitor\session_failover.py --follow
 所以选路按实测成功率排序。模型差异比节点差异大得多
 （`openrouter/minimax/minimax-m3.1-flash:free` 8/8，`opencode/deepseek-v4.1-flash-free` 4/8），
 已据此把 OpenChamber 项目默认模型改成前者。
+
+历史回测（2.1 天、135 会话、150 个错误）还推翻了“等攒够 3 次再切”的做法：
+52 个卡死的会话里 **51 个只出现过一次 403** 就结束了（用户 5 分钟内放弃重开），
+“攒够 3 次”会全部漏掉。因此 403 类错误改由**每会话换模型**处理（修复率 100%，
+且只动一个会话），切全局节点留给真正的网络类错误。
 
 ## 安全提示
 

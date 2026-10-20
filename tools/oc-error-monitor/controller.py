@@ -67,12 +67,34 @@ NO_SWITCH_REASONS = {
     "UNKNOWN": "unknown error; record and notify",
 }
 
-# `AUTH_IP_REPUTATION` is measured to be intermittent (probe_matrix.py,
-# 2026-10-20: 3/8 success on one fixed node/model, 25%-75% across nodes),
-# so a single 403 must not trigger a node switch. It only becomes
-# switch-eligible once the same class has failed repeatedly in a window.
-PERSISTENT_CLASSES = {"AUTH_IP_REPUTATION"}
-PERSISTENT_MIN_FAILURES = 3
+# `AUTH_IP_REPUTATION` is deliberately NOT handled here.
+#
+# The historical backtest (backtest.py: 2.1 days, 135 sessions, 150 errors)
+# shows two things:
+#
+#   1. Waiting for a burst of 3 is counterproductive. Of the 6 errors that
+#      reached that threshold, all 6 were false positives - the session had
+#      already recovered. The sessions that actually needed help died on
+#      their FIRST 403: 51 of the 52 sessions that ended on a 403 had
+#      exactly one such error and were never tried again. 46 of those 52
+#      were followed by a new session within 5 minutes, i.e. the user gave
+#      up and restarted.
+#
+#   2. A model switch beats a node switch for this class. The 403 comes
+#      from the upstream gateway's view of the exit IP, and the measured
+#      fix rate is 100% for a different model (openrouter :free, 8/8) versus
+#      33%-83% for the best node.
+#
+# So this class belongs to the per-session layer (session_failover.py),
+# which acts on the first failure and touches one session instead of
+# moving every session's exit IP. P2 keeps its hands off it.
+P3_OWNED_CLASSES = {"AUTH_IP_REPUTATION", "AUTH_FREE_TIER", "LOCAL_RELAY"}
+P3_OWNED_REASON = "handled per-session by session_failover.py (model switch)"
+
+# Classes that need a sustained burst before a global node switch.
+# Empty by default: the backtest found no class where waiting pays off.
+PERSISTENT_CLASSES: set[str] = set()
+PERSISTENT_MIN_FAILURES = 1
 PERSISTENT_WINDOW = 600.0
 
 SKIP_NAME_RE = re.compile(
@@ -460,6 +482,35 @@ class Decision:
     reason: str
 
 
+def event_time(event: dict[str, Any]) -> float | None:
+    """Epoch seconds of an event's own timestamp, if it has one.
+
+    Needed for historical replay: the budgets (min interval, cooldown,
+    hourly cap) are all wall-clock windows, so replaying two days of
+    history against the real clock would collapse them into one instant.
+    """
+    raw = event.get("ts")
+    if not raw:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                dt = datetime.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return dt.timestamp()
+
+
 def decide(
     event: dict[str, Any],
     state: dict[str, Any],
@@ -470,6 +521,11 @@ def decide(
     max_per_15min: int,
 ) -> Decision:
     error_class = str(event.get("error_class") or "UNKNOWN")
+
+    if error_class in P3_OWNED_CLASSES:
+        # The per-session layer owns this class; a global node switch would
+        # move every session's exit IP to fix one session's problem.
+        return Decision("NOOP", P3_OWNED_REASON)
 
     if error_class in PERSISTENT_CLASSES:
         # Count recent occurrences of this class. Only a sustained burst is
@@ -618,6 +674,12 @@ class Controller:
 
     def handle(self, event: dict[str, Any]) -> None:
         now = time.time()
+        if self.args.event_time:
+            # Historical replay: budget windows must follow the event's own
+            # clock, otherwise two days of history collapse into one instant.
+            stamp = event_time(event)
+            if stamp is not None:
+                now = stamp
         error_class = str(event.get("error_class") or "UNKNOWN")
         self.stats[error_class] += 1
 
@@ -923,6 +985,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--health-timeout", type=int, default=5000, help="Delay probe timeout (ms)")
     parser.add_argument("--max-delay", type=int, default=5000, help="Maximum acceptable delay (ms)")
     parser.add_argument("--health-workers", type=int, default=4, help="Parallel delay probes")
+    parser.add_argument(
+        "--event-time",
+        action="store_true",
+        help="Use each event's own timestamp for budget windows (historical replay)",
+    )
     parser.add_argument(
         "--node-scores",
         type=Path,

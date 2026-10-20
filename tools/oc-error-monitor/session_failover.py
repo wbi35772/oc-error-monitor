@@ -50,6 +50,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +72,13 @@ DEFAULT_FALLBACKS = [
 ]
 
 # Error classes that justify moving a session to another model.
+#
+# The backtest (backtest.py, 2.1 days of real history) shows the threshold
+# matters: requiring 3 failures fires only on sessions that were already
+# surviving. 51 of the 52 sessions that died outright had exactly ONE
+# AUTH_IP_REPUTATION error and were never tried again. So the default is
+# to act on the first occurrence; the per-session blast radius is small
+# (one session's model), unlike a global node switch.
 FAILOVER_CLASSES = {"AUTH_IP_REPUTATION", "AUTH_FREE_TIER", "LOCAL_RELAY"}
 
 
@@ -373,12 +382,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Comma-separated providerID:id[:variant] fallback chain",
     )
-    p.add_argument("--min-failures", type=int, default=3, help="Failures before a session moves")
+    p.add_argument(
+        "--min-failures",
+        type=int,
+        default=1,
+        help="Failures before a session moves (1 = act on the first failure)",
+    )
     p.add_argument("--window", type=float, default=600.0, help="Failure window in seconds")
     p.add_argument("--restore-on-success", action="store_true", help="Restore the original model when a session succeeds")
     p.add_argument("--apply", action="store_true", help="Actually change session models (default: dry-run)")
     p.add_argument("--once", action="store_true", help="Process pending events and exit")
     p.add_argument("--from-start", action="store_true", help="Replay all events from the beginning")
+    p.add_argument(
+        "--event-time",
+        action="store_true",
+        help="Use each event's own timestamp for the failure window (historical replay)",
+    )
     p.add_argument("--list-models", action="store_true")
     p.add_argument("--list-sessions", action="store_true")
     p.add_argument(
@@ -417,6 +436,35 @@ def chain_from_scores(scores: dict[str, float]) -> list[dict[str, str]]:
             continue
         chain.append({"providerID": provider, "id": model_id, "variant": "default"})
     return chain
+
+
+def event_time(event: dict[str, Any]) -> float | None:
+    """Epoch seconds of an event's own timestamp, if it has one.
+
+    For historical replay: the failure window is wall-clock based, so
+    replaying two days of history against the real clock would collapse
+    every event into one instant.
+    """
+    raw = event.get("ts")
+    if not raw:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                dt = datetime.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return dt.timestamp()
 
 
 def parse_chain(raw: str | None) -> list[dict[str, str]]:
@@ -493,6 +541,10 @@ def main(argv: list[str] | None = None) -> int:
         if not session_id or cls not in FAILOVER_CLASSES:
             return
         now = time.time()
+        if args.event_time:
+            stamp = event_time(event)
+            if stamp is not None:
+                now = stamp
         count = policy.record_failure(session_id, cls, now)
         ok, reason = policy.should_failover(session_id, now)
         mix = policy.failure_mix(session_id)
@@ -516,16 +568,19 @@ def main(argv: list[str] | None = None) -> int:
             return
 
         # Do not re-switch a session that is already on a fallback model.
+        # The live `current` model does not change during a dry-run, so the
+        # shadow record below is what stops repeats: compare the *target* we
+        # would switch to against the target we already chose.
         applied = (state.get("applied") or {}).get(session_id)
         if applied:
             prev_to = applied.get("to") or {}
             if (prev_to.get("providerID"), prev_to.get("id")) == (
-                current.get("providerID"),
-                current.get("id"),
+                target.get("providerID"),
+                target.get("id"),
             ):
                 print(
-                    f"[failover] SKIP {session_id}: already on fallback "
-                    f"{current.get('providerID')}/{current.get('id')}",
+                    f"[failover] SKIP {session_id}: already targeted "
+                    f"{target.get('providerID')}/{target.get('id')}",
                     flush=True,
                 )
                 return
@@ -537,6 +592,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"{target['providerID']}/{target['id']}",
                 flush=True,
             )
+            # Shadow the switch so the preview matches --apply: without this
+            # every repeat event would print another WOULD_SWITCH.
+            state.setdefault("applied", {})[session_id] = {
+                "from": current,
+                "to": target,
+                "ts": now,
+                "dry_run": True,
+            }
             actions += 1
             return
 

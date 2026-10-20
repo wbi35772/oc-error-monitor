@@ -49,29 +49,19 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(cls=cls):
                 self.assertEqual(self.decide(cls).kind, "NOOP")
 
-    def test_ip_reputation_is_intermittent_not_a_hard_ban(self) -> None:
-        """One 403 must not move the node; a sustained burst may.
+    def test_ip_reputation_is_left_to_the_per_session_layer(self) -> None:
+        """A 403 must not move the shared node; P3 switches that one session.
 
-        Measured 2026-10-20: the same node/model succeeded on 3/8 attempts,
-        so the first failures are treated as upstream flakiness.
+        Backtest (backtest.py, 2.1 days / 135 sessions / 150 errors):
+        51 of the 52 sessions that ended on a 403 had exactly one such
+        error, and 46 of them were followed by a new session within five
+        minutes - the user gave up and restarted. A global node switch
+        would move every session's exit IP to fix one session's problem,
+        and a model switch fixes it at a measured 100% vs 33%-83%.
         """
-        first = self.decide("AUTH_IP_REPUTATION")
-        self.assertEqual(first.kind, "NOOP")
-        self.assertIn("intermittent", first.reason)
-
-        second = self.decide("AUTH_IP_REPUTATION")
-        self.assertEqual(second.kind, "NOOP")
-
-        third = self.decide("AUTH_IP_REPUTATION")
-        self.assertEqual(third.kind, "SWITCH")
-
-    def test_ip_reputation_burst_expires(self) -> None:
-        self.decide("AUTH_IP_REPUTATION")
-        self.decide("AUTH_IP_REPUTATION")
-        # Move the clock past the persistence window.
-        result = self.decide("AUTH_IP_REPUTATION", now=self.now + 1000)
-        self.assertEqual(result.kind, "NOOP")
-        self.assertIn("intermittent", result.reason)
+        decision = self.decide("AUTH_IP_REPUTATION")
+        self.assertEqual(decision.kind, "NOOP")
+        self.assertIn("session_failover", decision.reason)
 
     def test_network_class_can_switch(self) -> None:
         for cls in ("NET_DNS", "NET_CONNECT", "NET_STREAM", "NET_TIMEOUT"):
@@ -160,6 +150,57 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual(controller.rotate(["a", "b", "c"], 1), ["b", "c", "a"])
         self.assertEqual(controller.rotate(["a", "b", "c"], 4), ["b", "c", "a"])
         self.assertEqual(controller.rotate([], 2), [])
+
+
+class PolicyOwnershipTests(unittest.TestCase):
+    """P2 and P3 must not both act on the same class, and not leave gaps."""
+
+    def test_p3_owned_classes_are_not_p2_switch_classes(self) -> None:
+        overlap = controller.P3_OWNED_CLASSES & controller.SWITCH_CLASSES
+        self.assertEqual(overlap, set(), f"both layers act on {overlap}")
+
+    def test_p3_owned_classes_are_not_p2_persistent_classes(self) -> None:
+        overlap = controller.P3_OWNED_CLASSES & controller.PERSISTENT_CLASSES
+        self.assertEqual(overlap, set(), f"both layers act on {overlap}")
+
+    def test_p3_covers_every_p3_owned_class(self) -> None:
+        import session_failover
+
+        missing = controller.P3_OWNED_CLASSES - session_failover.FAILOVER_CLASSES
+        self.assertEqual(missing, set(), f"P3 does not handle {missing}")
+
+    def test_every_class_has_exactly_one_owner(self) -> None:
+        import session_failover
+
+        p2 = controller.SWITCH_CLASSES | controller.PERSISTENT_CLASSES
+        p3 = session_failover.FAILOVER_CLASSES
+        both = p2 & p3
+        self.assertEqual(both, set(), f"both layers act on {both}")
+
+    def test_p2_defers_p3_owned_class(self) -> None:
+        decision = controller.decide(
+            {"error_class": "AUTH_IP_REPUTATION"},
+            {},
+            1000.0,
+            120.0,
+            300.0,
+            3,
+            2,
+        )
+        self.assertEqual(decision.kind, "NOOP")
+        self.assertIn("session_failover", decision.reason)
+
+    def test_p2_still_switches_net_classes(self) -> None:
+        decision = controller.decide(
+            {"error_class": "NET_STREAM"},
+            {},
+            1000.0,
+            120.0,
+            300.0,
+            3,
+            2,
+        )
+        self.assertEqual(decision.kind, "SWITCH")
 
 
 class DryRunBudgetTests(unittest.TestCase):
