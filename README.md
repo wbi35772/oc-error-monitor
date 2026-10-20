@@ -18,7 +18,8 @@
 
 > 每个子目录都是**独立的 git 仓库**，`origin` 均指向官方 GitHub 地址。根目录 `.gitignore` 已把这四个目录排除，工作区仓库本身不会误提交它们。
 >
-> 注意：本机还没有配置 `git user.name` / `git user.email`，在各仓库提交前需要先设置。
+> 注意：工作区仓库已用**仓库级**身份提交（`opencode-network <opencode-network@localhost>`，
+> 见 `git config --local user.name`）。四个子仓库仍是各自独立身份，提交前需在对应目录设置。
 
 ## 快速启动
 
@@ -186,7 +187,7 @@ git -c http.proxy= -c https.proxy= pull
    ```
    需要管理员确认，安装体积数 GB；不装也不影响预编译 GUI/MCP。
 2. **（可选）System Informer 源码构建**：在 1 的基础上再装 Windows SDK + WDK，然后 `build_init.cmd` → `build_release.cmd`。
-3. **配置 git 身份**，否则无法提交本地改动。
+3. **给四个子仓库配置 git 身份**（工作区仓库已用仓库级身份提交）。
 4. **MCP 注册已完成**：OpenCode 配置在 `C:\Users\24999\.config\opencode\opencode.json` 的
    `mcp.servers.openprocmon`；其他客户端可参考 `openprocmon\docs\mcp-guide_zh.md` 手动接入。
 5. **下一阶段（尚未开始）**：接入 mihomo 代理系统，做基于 OpenChamber 对话状态的智能选路、
