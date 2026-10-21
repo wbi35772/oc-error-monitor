@@ -1,0 +1,48 @@
+{
+  "proxy": {
+    "port": 8788,
+    "health": {
+      "ok": true,
+      "service": "opencode retry proxy",
+      "version": "1.0.0",
+      "pid": 35060,
+      "uptime_s": 212.2,
+      "upstream": "https://opencode.ai/inference/openai/v1",
+      "paused": false
+    },
+    "requests": 4,
+    "attempts": 4,
+    "classes": {
+      "OK": 4
+    }
+  },
+  "models": {
+    "total": 44,
+    "wired": 44,
+    "not_wired": []
+  },
+  "routing": {
+    "enabled": true,
+    "minConfidence": 0.6,
+    "preserveCache": true,
+    "safetyNet": false,
+    "fallback": "opencode/deepseek-v4.1-flash-free",
+    "fallback_variant": "max",
+    "raw_keys": [
+      "enabled",
+      "fallback",
+      "minConfidence",
+      "preserveCache",
+      "safetyNet",
+      "version"
+    ]
+  },
+  "watchdog": {
+    "OpenCode Retry Proxy": "installed",
+    "OpenCode Retry Proxy (logon)": "installed"
+  },
+  "opencode_db": {
+    "exists": true,
+    "size_mb": 50.54
+  }
+}

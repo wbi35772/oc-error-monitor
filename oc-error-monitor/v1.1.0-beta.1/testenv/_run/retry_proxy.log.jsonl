@@ -1,0 +1,11 @@
+{"ts": "2026-10-20T23:32:05", "method": "POST", "path": "/v1/chat/completions", "attempts": ["IP_REP", "OK"], "ms": 358, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:05", "method": "POST", "path": "/v1/chat/completions", "attempts": ["IDENTITY"], "ms": 0, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:05", "method": "POST", "path": "/v1/chat/completions", "attempts": ["EMPTY_STREAM", "OK"], "ms": 359, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:09", "method": "POST", "path": "/v1/chat/completions", "attempts": ["IP_REP", "IP_REP", "IP_REP", "IP_REP"], "ms": 3268, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:11", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 2036, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:11", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 0, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:19", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "ROUTE:direct", "ERR:URLError"], "ms": 4494, "body_len": 49, "model": "mock", "route": "direct"}
+{"ts": "2026-10-20T23:32:19", "method": "POST", "path": "/v1/chat/completions", "attempts": ["IP_REP"], "ms": 0, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 1, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:24", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 2501, "body_len": 49, "model": "mock", "route": "proxy"}
+{"ts": "2026-10-20T23:32:24", "method": "SYSTEM", "path": "/__drain", "attempts": ["DRAIN"], "ms": 0, "body_len": 0, "model": null, "route": "local"}

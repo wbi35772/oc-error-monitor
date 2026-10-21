@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>流场文档页 · 零依赖样例</title>
+<style>
+  :root{
+    --bg:#07090f; --fg:#e8edf7; --muted:#8b97ad; --line:rgba(255,255,255,.10);
+    --c1:#4ea8ff; --c2:#7cf7d4; --c3:#b78bff; --c4:#ffb37b;
+    --radius:16px; --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--fg); font-family:var(--font);
+    overflow-x:hidden; -webkit-font-smoothing:antialiased;
+  }
+  #flow{position:fixed; inset:0; width:100%; height:100%; z-index:0; display:block}
+  .veil{position:fixed; inset:0; z-index:1; pointer-events:none;
+    background:radial-gradient(120% 90% at 50% 0%, rgba(7,9,15,0) 0%, rgba(7,9,15,.30) 45%, rgba(7,9,15,.80) 100%)}
+
+  .wrap{position:relative; z-index:2; max-width:860px; margin:0 auto; padding:72px 22px 120px}
+
+  .eyebrow{display:inline-flex; align-items:center; gap:8px; font-size:12px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--muted); border:1px solid var(--line);
+    padding:6px 12px; border-radius:999px; background:rgba(255,255,255,.03)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--c2);
+    box-shadow:0 0 0 0 rgba(124,247,212,.6); animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(124,247,212,.55)}70%{box-shadow:0 0 0 9px rgba(124,247,212,0)}100%{box-shadow:0 0 0 0 rgba(124,247,212,0)}}
+
+  h1{font-size:clamp(34px,6vw,58px); line-height:1.05; margin:26px 0 14px; font-weight:700; letter-spacing:-.02em}
+  h1 .grad{background:linear-gradient(100deg,var(--c1),var(--c2) 38%,var(--c3) 70%,var(--c4));
+    -webkit-background-clip:text; background-clip:text; color:transparent; background-size:220% 100%;
+    animation:slide 9s ease-in-out infinite}
+  @keyframes slide{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+  .sub{color:var(--muted); font-size:17px; line-height:1.65; max-width:62ch; margin:0 0 34px}
+
+  .card{border:1px solid var(--line); border-radius:var(--radius); padding:22px 24px;
+    background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.015));
+    backdrop-filter:blur(14px) saturate(140%); -webkit-backdrop-filter:blur(14px) saturate(140%);
+    box-shadow:0 24px 60px -30px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.08);
+    margin:18px 0}
+  .card h2{font-size:17px; margin:0 0 8px; display:flex; align-items:center; gap:10px}
+  .card p{margin:0; color:var(--muted); line-height:1.7; font-size:14.5px}
+  .tag{font-size:11px; padding:3px 9px; border-radius:6px; border:1px solid var(--line);
+    color:var(--c2); background:rgba(124,247,212,.07); font-variant-numeric:tabular-nums}
+
+  /* the ribbon: a stream that shows progress, the "flow" made legible */
+  .ribbon{position:relative; height:44px; margin:26px 0 8px; border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; background:rgba(255,255,255,.03)}
+  .ribbon canvas{position:absolute; inset:0; width:100%; height:100%}
+  .ribbon .lbl{position:absolute; inset:0; display:flex; align-items:center; gap:10px;
+    padding:0 14px; font-size:12.5px; color:#cfd8e8; letter-spacing:.04em;
+    text-shadow:0 1px 6px rgba(0,0,0,.95), 0 0 14px rgba(0,0,0,.85)}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; margin:22px 0}
+  .metric{border:1px solid var(--line); border-radius:14px; padding:16px 18px; background:rgba(255,255,255,.03)}
+  .metric .v{font-size:26px; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  .metric .k{font-size:12px; color:var(--muted); margin-top:4px}
+
+  .row{display:flex; flex-wrap:wrap; gap:10px; margin-top:22px}
+  .btn{appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--fg);
+    padding:9px 16px; border-radius:10px; font-size:13px; cursor:pointer; font-family:inherit;
+    transition:background .18s ease, transform .18s ease, border-color .18s ease}
+  .btn:hover{background:rgba(255,255,255,.09); transform:translateY(-1px); border-color:rgba(255,255,255,.22)}
+  .btn[aria-pressed="true"]{background:rgba(78,168,255,.16); border-color:rgba(78,168,255,.5)}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px;
+    background:rgba(255,255,255,.07); padding:2px 6px; border-radius:6px}
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important} }
+</style>
+</head>
+<body>
+<canvas id="flow"></canvas>
+<div class="veil"></div>
+
+<div class="wrap">
+  <span class="eyebrow"><span class="dot"></span>零依赖 · canvas 流场</span>
+  <h1>让文档<span class="grad">流动</span>起来</h1>
+  <p class="sub">背景是一张 canvas 流场：粒子沿合成向量场漂移并留下轨迹，标题用渐变位移。整页没有引入任何第三方库，动画与内容分离，内容仍然是普通的 HTML，可以直接被搜索引擎和阅读器抓到。</p>
+
+  <div class="ribbon">
+    <canvas id="rib"></canvas>
+    <div class="lbl">请求流 · <span id="rq">0</span> 已完成 · <span id="lat">0</span> ms 均值</div>
+  </div>
+
+  <div class="grid">
+    <div class="metric"><div class="v" id="m1">0</div><div class="k">请求</div></div>
+    <div class="metric"><div class="v" id="m2">0</div><div class="k">重试</div></div>
+    <div class="metric"><div class="v" id="m3">0</div><div class="k">截断流</div></div>
+    <div class="metric"><div class="v" id="m4">0</div><div class="k">恢复</div></div>
+  </div>
+
+  <div class="card">
+    <h2>层一：流场背景 <span class="tag">canvas 2d</span></h2>
+    <p>向量场由四组不同频率的正弦叠加而成，成本几乎为零；粒子每帧按场方向前进，并把当前位置以低透明度画回画布形成拖尾。画布尺寸跟随 devicePixelRatio，避免高分屏发虚。</p>
+  </div>
+
+  <div class="card">
+    <h2>层二：渐变位移标题 <span class="tag">CSS background-position</span></h2>
+    <p>文字用 <code>background-clip:text</code> 裁出渐变，再让渐变自身缓慢移动。比逐字动画更省，也不会打断阅读节奏。</p>
+  </div>
+
+  <div class="card">
+    <h2>层三：数据流带 <span class="tag">canvas 2d</span></h2>
+    <p>一条随时间推进的横向流带，把"正在处理"这件事画出来。它是给运维看板用的：把代理的实时计数接进来即可。</p>
+  </div>
+
+  <div class="row">
+    <button class="btn" id="toggle">暂停动画</button>
+    <button class="btn" id="dens">粒子密度 +</button>
+    <button class="btn" id="hue">配色</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var running = !reduce;
+  var density = 230, hueShift = 0;
+  var PAL = [[78,168,255],[124,247,212],[183,139,255],[255,179,123]];
+
+  // ---------- background flow field ----------
+  var cv = document.getElementById('flow'), ctx = cv.getContext('2d');
+  var W=0,H=0,DPR=1, pts=[], t=0;
+
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio||1, 2);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = Math.floor(W*DPR); cv.height = Math.floor(H*DPR);
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    seed();
+  }
+  function seed(){
+    pts = [];
+    var n = reduce ? 0 : Math.floor(density * (W*H)/(1600*900));
+    for (var i=0;i<n;i++){
+      pts.push({x:Math.random()*W, y:Math.random()*H, life:Math.random()*160, c:PAL[(Math.random()*PAL.length)|0], s:.8+Math.random()*1.6});
+    }
+  }
+  // a cheap vector field: four sine waves, no noise texture needed
+  function field(x,y,tt){
+    var a = Math.sin(x*0.0021 + tt*0.22) * 1.25
+          + Math.cos(y*0.0017 - tt*0.17) * 1.05
+          + Math.sin((x+y)*0.0009 + tt*0.11) * 0.85
+          + Math.cos((x-y)*0.0013 - tt*0.13) * 0.7;
+    return a;
+  }
+  function drawFlow(dt){
+    ctx.fillStyle = 'rgba(7,9,15,0.045)';
+    ctx.fillRect(0,0,W,H);
+    t += dt;
+    for (var i=0;i<pts.length;i++){
+      var p = pts[i];
+      var a = field(p.x,p.y,t);
+      var vx = Math.cos(a)*p.s, vy = Math.sin(a)*p.s;
+      p.x += vx; p.y += vy; p.life -= 1;
+      if (p.life<0 || p.x<-20 || p.x>W+20 || p.y<-20 || p.y>H+20){
+        p.x = Math.random()*W; p.y = Math.random()*H; p.life = 120+Math.random()*140;
+        p.c = PAL[((Math.random()*PAL.length)|0 + hueShift) % PAL.length];
+        continue;
+      }
+      var al = Math.min(1, p.life/40) * 0.62;
+      ctx.fillStyle = 'rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+al.toFixed(3)+')';
+      ctx.fillRect(p.x, p.y, p.s, p.s);
+    }
+  }
+
+  // ---------- ribbon ----------
+  var rc = document.getElementById('rib'), rx = rc.getContext('2d');
+  var rw=0, rh=0, beads=[];
+  function resizeRib(){
+    rw = rc.clientWidth; rh = rc.clientHeight;
+    rc.width = Math.floor(rw*DPR); rc.height = Math.floor(rh*DPR);
+    rx.setTransform(DPR,0,0,DPR,0,0);
+    if (!beads.length) for (var i=0;i<26;i++) beads.push({x:Math.random()*rw, y:Math.random()*rh, v:.6+Math.random()*1.6, c:PAL[i%PAL.length]});
+  }
+  function drawRib(dt){
+    rx.clearRect(0,0,rw,rh);
+    for (var i=0;i<beads.length;i++){
+      var b = beads[i];
+      b.x += b.v*dt*60/16;
+      if (b.x > rw+20){ b.x = -20; b.y = Math.random()*rh; }
+      var c = PAL[((i%PAL.length)+hueShift)%PAL.length];
+      var g = rx.createRadialGradient(b.x,b.y,0,b.x,b.y,15);
+      g.addColorStop(0,'rgba('+c[0]+','+c[1]+','+c[2]+',.40)');
+      g.addColorStop(1,'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+      rx.fillStyle = g; rx.beginPath(); rx.arc(b.x,b.y,15,0,6.2832); rx.fill();
+    }
+  }
+
+  // ---------- fake metrics ----------
+  var rq=0, rt=0, tr=0, rc2=0, lat=0;
+  setInterval(function(){
+    rq++; if (Math.random()<0.22) rt++; if (Math.random()<0.05) tr++; if (Math.random()<0.3) rc2++;
+    lat = Math.round(lat*0.7 + (800+Math.random()*2600)*0.3);
+    document.getElementById('rq').textContent = rq;
+    document.getElementById('lat').textContent = lat;
+    document.getElementById('m1').textContent = rq;
+    document.getElementById('m2').textContent = rt;
+    document.getElementById('m3').textContent = tr;
+    document.getElementById('m4').textContent = rc2;
+  }, 1200);
+
+  // ---------- loop ----------
+  var last = performance.now();
+  function frame(now){
+    var dt = Math.min(48, now-last); last = now;
+    if (running){ drawFlow(dt/16.67); drawRib(dt/16.67); }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  window.addEventListener('resize', function(){ resize(); resizeRib(); });
+  resize(); resizeRib();
+
+  document.getElementById('toggle').addEventListener('click', function(){
+    running = !running;
+    this.textContent = running ? '暂停动画' : '继续动画';
+    this.setAttribute('aria-pressed', String(!running));
+  });
+  document.getElementById('dens').addEventListener('click', function(){
+    density = Math.min(520, density+80); seed();
+  });
+  document.getElementById('hue').addEventListener('click', function(){
+    hueShift = (hueShift+1) % PAL.length;
+    for (var i=0;i<pts.length;i++) pts[i].c = PAL[((i%PAL.length)+hueShift)%PAL.length];
+  });
+})();
+</script>
+</body>
+</html>
