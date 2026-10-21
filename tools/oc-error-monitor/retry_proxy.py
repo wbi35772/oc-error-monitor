@@ -85,10 +85,39 @@ BACKOFF = [0.4, 1.0, 1.8, 3.0, 4.5]
 # us to slow down, not to try again in a fraction of a second.
 RATE_BACKOFF = [2.0, 5.0, 9.0, 15.0, 25.0]
 
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "retry_proxy.log.jsonl")
-ACTIVE_PORT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "active-port.txt")
-HANDOVER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "handover-request.json")
-LOCK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"retry_proxy-{PORT}.lock")
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _read_version():
+    """The version sits in VERSION at the repository root, and the staging
+    step copies it next to the running copy, so a live instance can answer
+    "which build am I" over HTTP instead of by directory name.
+
+    Two layouts have to work: the repository (VERSION two levels up from
+    tools/oc-error-monitor) and the staged runtime directory (VERSION beside
+    the script). So the lookup walks up instead of assuming one shape."""
+    here = HERE
+    for _ in range(5):
+        try:
+            with open(os.path.join(here, "VERSION"), "r", encoding="utf-8") as f:
+                first = f.read().strip().splitlines()[0].strip()
+                if first:
+                    return first
+        except (OSError, IndexError):
+            pass
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    return "0.0.0-dev"
+
+
+VERSION = _read_version()
+
+LOG_PATH = os.path.join(HERE, "retry_proxy.log.jsonl")
+ACTIVE_PORT_FILE = os.path.join(HERE, "active-port.txt")
+HANDOVER_FILE = os.path.join(HERE, "handover-request.json")
+LOCK_PATH = os.path.join(HERE, f"retry_proxy-{PORT}.lock")
 
 # "finish_reason":null is not a finish; only a non-null value ends the stream.
 _FINISH_RE = re.compile(rb'"finish_reason"\s*:\s*"(?!null)\S')
@@ -177,6 +206,7 @@ def snapshot_stats():
         out["uptime_s"] = round(time.time() - STARTED_TS, 1)
         out["pid"] = os.getpid()
         out["port"] = PORT
+        out["version"] = VERSION
         out["upstream"] = UPSTREAM
         out["upstream_proxy"] = UPSTREAM_PROXY
         return out
@@ -415,6 +445,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send_json({
                     "ok": True,
                     "service": "opencode retry proxy",
+                    "version": VERSION,
                     "pid": os.getpid(),
                     "uptime_s": round(time.time() - STARTED_TS, 1),
                     "upstream": UPSTREAM,
@@ -426,6 +457,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/":
                 return self._send_json({
                     "service": "opencode retry proxy",
+                    "version": VERSION,
                     "dashboard": "/__ui",
                     "stats": "/__stats",
                     "events": "/__events",

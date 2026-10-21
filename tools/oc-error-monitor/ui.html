@@ -90,6 +90,7 @@
   <header>
     <h1>Retry Proxy</h1>
     <span class="pill" id="health"><span class="dot"></span><span id="healthText">…</span></span>
+    <span class="meta" id="ver">v…</span>
     <span class="meta" id="where">127.0.0.1:8787</span>
     <span class="meta" id="uptime"></span>
     <span class="meta" id="pid"></span>
@@ -251,6 +252,7 @@ function renderStats(s){
   const hp=$('health'), ht=$('healthText');
   hp.className='pill '+(s.failed_requests>0?'warn':'ok');
   ht.textContent = paused ? '已暂停' : (s.failed_requests>0 ? '有失败' : '在线');
+  const ver=$('ver'); if(ver) ver.textContent='v'+(s.version||'?');
 }
 
 function addEvent(ev){

@@ -42,6 +42,11 @@ New-Item -ItemType Directory -Path $rundir -Force | Out-Null
 if ([System.IO.Path]::GetFullPath($here) -ne [System.IO.Path]::GetFullPath($rundir)) {
     Copy-Item (Join-Path $here 'retry_proxy.py') $dst -Force
     if (Test-Path (Join-Path $here 'ui.html')) { Copy-Item (Join-Path $here 'ui.html') $ui -Force }
+    # VERSION travels with the code, so the live instance reports the build it
+    # actually came from rather than a value baked in at import time.
+    $ver = Join-Path $here 'VERSION'
+    if (-not (Test-Path $ver)) { $ver = Join-Path $here '..\..\VERSION' }
+    if (Test-Path $ver) { Copy-Item $ver (Join-Path $rundir 'VERSION') -Force }
 }
 
 # Loopback health check that never consults the system proxy.
