@@ -1,4 +1,4 @@
-"""Retry proxy for the OpenCode free tier.
+﻿"""Retry proxy for the OpenCode free tier.
 
 Why this exists
 ---------------
@@ -42,15 +42,18 @@ Endpoints
 """
 import http.server
 import json
+import socket
 import os
+import queue
 import random
 import re
+import subprocess
 import sys
 import threading
 import time
 import urllib.error
 import urllib.request
-from collections import Counter
+from collections import Counter, deque
 
 # pythonw.exe has no console: sys.stdout/sys.stderr are None there.
 for _s in (sys.stdout, sys.stderr):
@@ -62,6 +65,13 @@ for _s in (sys.stdout, sys.stderr):
 
 HOST = os.environ.get("RETRY_PROXY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("RETRY_PROXY_PORT", "8787"))
+# If the port is taken by something that is not us (playwright-mcp's internal
+# server once grabbed 8787), the proxy moves to the next one and publishes it.
+PORT_CANDIDATES = [
+    int(x)
+    for x in os.environ.get("RETRY_PROXY_PORTS", "8787,8788,8790,8791").split(",")
+    if x.strip().isdigit()
+] or [PORT]
 UPSTREAM = os.environ.get(
     "RETRY_PROXY_UPSTREAM", "https://opencode.ai/inference/openai/v1"
 ).rstrip("/")
@@ -73,6 +83,8 @@ SOCK_TIMEOUT = float(os.environ.get("RETRY_PROXY_TIMEOUT", "120"))
 BACKOFF = [0.4, 1.0, 1.8, 3.0, 4.5]
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "retry_proxy.log.jsonl")
+ACTIVE_PORT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "active-port.txt")
+HANDOVER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "handover-request.json")
 LOCK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"retry_proxy-{PORT}.lock")
 
 # "finish_reason":null is not a finish; only a non-null value ends the stream.
@@ -93,6 +105,19 @@ HOP = {
 }
 
 RETRY_STATUS = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
+
+# Runtime-tunable knobs. The dashboard writes these through /__control, so a
+# change of patience or route does not need a restart (and a restart is what
+# used to drop the CLI's connection).
+SETTINGS = {
+    "attempts": MAX_ATTEMPTS,
+    "backoff": list(BACKOFF),
+    "timeout": SOCK_TIMEOUT,
+    "paused": False,      # paused = one attempt, no retry: pure pass-through
+    "force_route": None,  # None | "proxy" | "direct"
+}
+STARTED_TS = time.time()
+
 
 # Two routes: through mihomo (normal) and direct (mihomo not running yet, or a
 # network that reaches the gateway without it). A refused proxy connection
@@ -119,6 +144,39 @@ _stats = {
 }
 _classes = Counter()
 _log_writes = 0
+# Requests currently in flight. A handover drains this counter before the old
+# instance exits, so a running stream is never cut in half.
+_active = 0
+
+# Live feed for the dashboard: the last 400 records plus one queue per open
+# /__events stream. Bounded so a forgotten tab cannot grow memory.
+_events = deque(maxlen=400)
+_subscribers = set()
+
+
+def publish(ev):
+    with _lock:
+        _events.append(ev)
+        subs = list(_subscribers)
+    for q in subs:
+        try:
+            q.put_nowait(ev)
+        except queue.Full:
+            pass
+
+
+def snapshot_stats():
+    with _lock:
+        out = dict(_stats)
+        out["classes"] = dict(_classes)
+        out["settings"] = dict(SETTINGS)
+        out["settings"]["backoff"] = list(SETTINGS["backoff"])
+        out["uptime_s"] = round(time.time() - STARTED_TS, 1)
+        out["pid"] = os.getpid()
+        out["port"] = PORT
+        out["upstream"] = UPSTREAM
+        out["upstream_proxy"] = UPSTREAM_PROXY
+        return out
 
 
 def bump(key, n=1):
@@ -127,8 +185,9 @@ def bump(key, n=1):
 
 
 def log(rec):
-    """Append one JSONL record, rotating the file at 5 MB."""
+    """Append one JSONL record, rotate at 5 MB, and push it to the live feed."""
     global _log_writes
+    publish(rec)
     try:
         _log_writes += 1
         if _log_writes % 200 == 0 and os.path.exists(LOG_PATH):
@@ -167,7 +226,8 @@ def should_retry(cls, status):
 
 
 def backoff(attempt):
-    delay = BACKOFF[min(attempt, len(BACKOFF) - 1)]
+    seq = SETTINGS["backoff"] or BACKOFF
+    delay = seq[min(attempt, len(seq) - 1)]
     return delay * (0.85 + random.random() * 0.3)
 
 
@@ -197,9 +257,126 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    # ---- dashboard ------------------------------------------------------
+    def _serve_ui(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        page = os.path.join(here, "ui.html")
+        try:
+            with open(page, "rb") as f:
+                raw = f.read()
+        except OSError:
+            return self._send_json({"error": "ui.html is missing next to retry_proxy.py"}, 500)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _serve_events(self):
+        q = queue.Queue(maxsize=200)
+        with _lock:
+            _subscribers.add(q)
+            backlog = list(_events)[-50:]
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            for ev in backlog:
+                self.wfile.write(b"data: " + json.dumps(ev, ensure_ascii=False).encode() + b"\n\n")
+            self.wfile.flush()
+            while True:
+                try:
+                    ev = q.get(timeout=15)
+                    self.wfile.write(b"data: " + json.dumps(ev, ensure_ascii=False).encode() + b"\n\n")
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            with _lock:
+                _subscribers.discard(q)
+            self.close_connection = True
+
+    def _control(self, body):
+        try:
+            data = json.loads(body.decode("utf-8") or "{}")
+        except Exception:
+            return self._send_json({"ok": False, "error": "bad json"}, 400)
+        action = str(data.get("action") or "")
+        if action == "pause":
+            SETTINGS["paused"] = True
+        elif action == "resume":
+            SETTINGS["paused"] = False
+        elif action == "drain":
+            want = data.get("pid")
+            if want and int(want) != os.getpid():
+                # Two instances share the port during a handover; the request
+                # may land on the wrong one.
+                return self._send_json(
+                    {"ok": False, "error": "not the addressed instance", "pid": os.getpid()}, 409
+                )
+            self._send_json({"ok": True, "action": "drain", "pid": os.getpid(), "active": _active})
+            threading.Thread(target=self._drain_and_exit, daemon=True).start()
+            return
+        elif action == "set":
+            try:
+                if "attempts" in data:
+                    SETTINGS["attempts"] = max(1, min(10, int(data["attempts"])))
+                if "timeout" in data:
+                    SETTINGS["timeout"] = max(5.0, min(900.0, float(data["timeout"])))
+                if isinstance(data.get("backoff"), list) and data["backoff"]:
+                    SETTINGS["backoff"] = [max(0.0, min(30.0, float(x))) for x in data["backoff"]][:6]
+            except (TypeError, ValueError):
+                return self._send_json({"ok": False, "error": "bad number"}, 400)
+            if "force_route" in data:
+                v = data["force_route"]
+                SETTINGS["force_route"] = v if v in ("proxy", "direct") else None
+        elif action == "reset":
+            with _lock:
+                for k in ("requests", "attempts", "retried_requests", "rescued_requests",
+                          "exhausted_requests", "failed_requests", "truncated_streams"):
+                    _stats[k] = 0
+                _classes.clear()
+                _stats["started_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        elif action == "restart":
+            here = os.path.dirname(os.path.abspath(__file__))
+            script = os.path.join(here, "restart-retry-proxy.ps1")
+            if not os.path.exists(script):
+                return self._send_json({"ok": False, "error": "restart-retry-proxy.ps1 missing"}, 400)
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Handover"],
+                cwd=here, creationflags=0x00000008, close_fds=True,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return self._send_json({"ok": True, "action": "restart", "note": "zero-downtime handover started"})
+        elif action == "shutdown":
+            self._send_json({"ok": True, "action": "shutdown"})
+            threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
+            return
+        else:
+            return self._send_json({"ok": False, "error": "unknown action " + action}, 400)
+        return self._send_json({"ok": True, "action": action, "settings": dict(SETTINGS)})
+
+    def _drain_and_exit(self):
+        """Stop accepting, let the running requests finish, then leave the port.
+
+        Order matters: the listening socket is closed *after* the in-flight
+        requests are done, so a stream that is half way through is never cut.
+        """
+        _drain_and_exit(self.server)
+
     def _target(self):
         p = self.path
         if p.startswith("/__"):
+            return None
+        if p in ("/", "/favicon.ico", "/index.html"):
+            # Never forward a probe of our own root to the gateway: the
+            # gateway answers 404 "not found" and the client blames the
+            # provider. Serve local metadata instead.
             return None
         if p.startswith("/v1"):
             return UPSTREAM + p[3:]
@@ -214,25 +391,62 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for k, v in hdrs.items():
             req.add_header(k, v)
         opener = _direct_opener if direct else _opener
-        return opener.open(req, timeout=SOCK_TIMEOUT)
+        return opener.open(req, timeout=SETTINGS["timeout"])
 
     def _handle(self, method):
         target = self._target()
         if target is None:
-            if self.path.startswith("/__stats"):
-                with _lock:
-                    out = dict(_stats)
-                    out["classes"] = dict(_classes)
-                self._send_json(out)
-            elif self.path.startswith("/__health"):
-                self._send_json({"ok": True, "upstream": UPSTREAM})
-            else:
-                self._send_json({"error": "not found"}, 404)
-            return
+            path = self.path.split("?", 1)[0]
+            if path in ("/__ui", "/__ui/"):
+                return self._serve_ui()
+            if path == "/__events":
+                return self._serve_events()
+            if path == "/__stats":
+                return self._send_json(snapshot_stats())
+            if path == "/__config":
+                return self._send_json(snapshot_stats())
+            if path == "/__health":
+                return self._send_json({
+                    "ok": True,
+                    "service": "opencode retry proxy",
+                    "pid": os.getpid(),
+                    "uptime_s": round(time.time() - STARTED_TS, 1),
+                    "upstream": UPSTREAM,
+                    "paused": SETTINGS["paused"],
+                })
+            if path == "/__control":
+                n = int(self.headers.get("Content-Length") or 0)
+                return self._control(self.rfile.read(n) if n else b"")
+            if path == "/":
+                return self._send_json({
+                    "service": "opencode retry proxy",
+                    "dashboard": "/__ui",
+                    "stats": "/__stats",
+                    "events": "/__events",
+                    "health": "/__health",
+                    "upstream": UPSTREAM,
+                    "pid": os.getpid(),
+                })
+            if path == "/favicon.ico":
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            return self._send_json({"error": "not found"}, 404)
 
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n) if n else b""
 
+        global _active
+        with _lock:
+            _active += 1
+        try:
+            return self._proxy_request(method, target, body)
+        finally:
+            with _lock:
+                _active -= 1
+
+    def _proxy_request(self, method, target, body):
         hdrs = {k: v for k, v in self.headers.items() if k.lower() not in HOP}
         hdrs["Accept-Encoding"] = "identity"
 
@@ -248,7 +462,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         streamed = False
         route_direct = False
 
-        for attempt in range(MAX_ATTEMPTS):
+        max_attempts = 1 if SETTINGS["paused"] else SETTINGS["attempts"]
+        route_direct = SETTINGS["force_route"] == "direct"
+        for attempt in range(max_attempts):
             bump("attempts")
             try:
                 resp = self._open_upstream(method, target, hdrs, body, route_direct)
@@ -268,7 +484,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             resp.close()
                         except Exception:
                             pass
-                        if attempt + 1 < MAX_ATTEMPTS:
+                        if attempt + 1 < max_attempts:
                             time.sleep(backoff(attempt))
                             continue
                         break
@@ -280,7 +496,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cls = classify(status, last_body)
                 trail.append(cls)
                 last_status = status
-                if attempt + 1 < MAX_ATTEMPTS and should_retry(cls, status):
+                if attempt + 1 < max_attempts and should_retry(cls, status):
                     time.sleep(backoff(attempt))
                     continue
                 break
@@ -292,7 +508,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     last_body = b""
                 cls = classify(last_status, last_body)
                 trail.append(cls)
-                if attempt + 1 < MAX_ATTEMPTS and should_retry(cls, last_status):
+                if attempt + 1 < max_attempts and should_retry(cls, last_status):
                     time.sleep(backoff(attempt))
                     continue
                 break
@@ -306,7 +522,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     trail.append("ROUTE:direct")
                     time.sleep(backoff(attempt))
                     continue
-                if attempt + 1 < MAX_ATTEMPTS:
+                if attempt + 1 < max_attempts:
                     time.sleep(backoff(attempt))
                     continue
                 break
@@ -493,7 +709,219 @@ def _peer_is_healthy():
         return False
 
 
+def _port_has_listener(port):
+    """True when something already answers on the port.
+
+    On Windows SO_REUSEADDR lets a process bind a port another process is
+    listening on, so binding is no proof that the port is free. Connecting is.
+    """
+    s = socket.socket()
+    s.settimeout(1.5)
+    try:
+        s.connect((HOST, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+
+
+def _port_is_ours(port):
+    """True when the port is served by a retry proxy (this one or another)."""
+    try:
+        with _direct_opener.open(f"http://127.0.0.1:{port}/__health", timeout=2) as r:
+            if r.status != 200:
+                return False
+            body = r.read(400).decode("utf-8", "replace")
+            return "opencode retry proxy" in body
+    except Exception:
+        return False
+
+
+def _port_is_free(port):
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind((HOST, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _port_owners(port):
+    """Who listens on the port (pid + executable), via the IP Helper API."""
+    try:
+        import port_owner
+
+        return port_owner.owners(port)
+    except Exception:
+        return []
+
+
+def _bind_server():
+    """Bind the first port we can have to ourselves.
+
+    Sharing a port with a foreign server is what produced the "HTTP 404: not
+    found" failures: Windows SO_REUSEADDR lets both bind, and connections are
+    then handed out at random, so some requests reached the wrong server.
+    A bind attempt proves nothing on Windows, so the OS is asked who owns the
+    port, and the connect test is the second opinion.
+    """
+    global PORT
+    mine = os.getpid()
+    for candidate in [PORT] + [p for p in PORT_CANDIDATES if p != PORT]:
+        owners = _port_owners(candidate)
+        foreign = [o for o in owners if o.get("pid") != mine]
+        if foreign:
+            for o in foreign:
+                exe = (o.get("exe") or "?").split("\\")[-1]
+                print(f"port {candidate} belongs to pid {o['pid']} ({exe}), skipping it")
+            continue
+        if _port_has_listener(candidate):
+            if _port_is_ours(candidate):
+                return None, candidate, "already-running"
+            continue
+        try:
+            srv = http.server.ThreadingHTTPServer((HOST, candidate), Handler)
+            srv.daemon_threads = True
+            PORT = candidate
+            return srv, candidate, "bound"
+        except OSError:
+            continue
+    return None, PORT, "failed"
+
+
+def _publish_port(port):
+    try:
+        os.makedirs(os.path.dirname(ACTIVE_PORT_FILE), exist_ok=True)
+        with open(ACTIVE_PORT_FILE, "w", encoding="utf-8") as f:
+            f.write(str(port))
+    except OSError:
+        pass
+
+
+def _request_handover(target_pid):
+    """Ask the incumbent instance to drain and exit.
+
+    The request goes through a file, not through the port: during a handover
+    both instances are bound, and Windows hands a new connection to one of
+    them at random, so an HTTP request cannot be addressed reliably.
+    """
+    try:
+        with open(HANDOVER_FILE, "w", encoding="utf-8") as f:
+            json.dump({"target": int(target_pid), "from": os.getpid(),
+                       "ts": time.time()}, f)
+    except OSError:
+        pass
+
+
+def _watch_handover_requests(server):
+    """The incumbent watches for a handover request and drains itself."""
+    while True:
+        time.sleep(0.4)
+        try:
+            with open(HANDOVER_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        try:
+            target = int(data.get("target", 0))
+        except (TypeError, ValueError):
+            continue
+        if target != os.getpid():
+            continue
+        try:
+            os.remove(HANDOVER_FILE)
+        except OSError:
+            pass
+        print(f"handover requested by pid {data.get('from')}, draining")
+        _drain_and_exit(server)
+        return
+
+
+def _drain_and_exit(server):
+    """Stop accepting, let the running requests finish, then leave the port."""
+    try:
+        server.shutdown()
+    except Exception:
+        pass
+    _wait_for_idle()
+    try:
+        server.server_close()
+    except Exception:
+        pass
+    log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "method": "SYSTEM", "path": "/__drain",
+         "attempts": ["DRAIN"], "ms": 0, "body_len": 0, "model": None, "route": "local"})
+    os._exit(0)
+
+
+def _wait_for_idle(timeout=120):
+    """Block until no request is in flight (or the timeout runs out)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with _lock:
+            n = _active
+        if n <= 0:
+            return True
+        time.sleep(0.2)
+    return False
+
+
 if __name__ == "__main__":
+    # Never share the port with a foreign server. Windows SO_REUSEADDR lets
+    # both bind, and connections are then handed out at random: some requests
+    # reached the wrong server and failed with "HTTP 404: not found".
+    if "--handover" in sys.argv[1:]:
+        _publish_port(PORT)
+
+    # --handover: the restart script starts this instance while the old one is
+    # still serving. Windows SO_REUSEADDR lets both bind 8787, so the socket is
+    # never closed. We serve immediately (the script waits for our /__health to
+    # answer with a new pid, then stops the old one) and take the file lock in
+    # the background once the incumbent releases it.
+    if "--handover" in sys.argv[1:]:
+        try:
+            srv = http.server.ThreadingHTTPServer((HOST, PORT), Handler)
+        except OSError as e:
+            _record_fatal(e)
+            raise SystemExit(1)
+        srv.daemon_threads = True
+
+        def _late_lock():
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                got = _acquire_single_instance()
+                if got is not False:
+                    globals()["_handover_lock"] = got
+                    return
+                time.sleep(0.5)
+
+        threading.Thread(target=_late_lock, daemon=True).start()
+        # The incumbent watches for a handover request through a file, so it
+        # drains itself even though the port now serves two instances.
+        threading.Thread(target=_watch_handover_requests, args=(srv,), daemon=True).start()
+        # Tell the incumbent to step down.
+        if "--handover-from" in sys.argv:
+            try:
+                idx = sys.argv.index("--handover-from")
+                _request_handover(int(sys.argv[idx + 1]))
+            except (IndexError, ValueError):
+                pass
+        print(f"retry proxy (handover) http://{HOST}:{PORT} -> {UPSTREAM}")
+        try:
+            srv.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        # serve_forever returns as soon as a drain asks it to; the process
+        # must not leave before the running requests are done.
+        _wait_for_idle()
+        raise SystemExit(0)
+
     # Guard first: a healthy instance on the port means there is nothing to do.
     if _peer_is_healthy():
         print("retry proxy already running; exiting")
@@ -503,14 +931,31 @@ if __name__ == "__main__":
         print("retry proxy already running; exiting")
         raise SystemExit(0)
     try:
-        srv = http.server.ThreadingHTTPServer((HOST, PORT), Handler)
-        srv.daemon_threads = True
+        srv, chosen, why = _bind_server()
+        if why == "already-running":
+            print("retry proxy already running; exiting")
+            raise SystemExit(0)
+        if why == "failed":
+            _record_fatal(f"no free port among {PORT_CANDIDATES}")
+            print(f"no free port among {PORT_CANDIDATES}")
+            raise SystemExit(1)
+        requested = int(os.environ.get("RETRY_PROXY_PORT", "8787"))
+        if chosen != requested:
+            print(f"port {requested} is taken by another service, moving to {chosen}")
+        _publish_port(chosen)
         print(f"retry proxy  http://{HOST}:{PORT}  ->  {UPSTREAM}")
         print(f"via proxy    {UPSTREAM_PROXY}")
         print(f"attempts     {MAX_ATTEMPTS}   log {LOG_PATH}")
+        # Every instance watches for a handover request, so a later upgrade
+        # can make this one step down without an HTTP round trip.
+        threading.Thread(target=_watch_handover_requests, args=(srv,), daemon=True).start()
         srv.serve_forever()
+        # A drain makes serve_forever return; wait for the in-flight requests.
+        _wait_for_idle()
     except KeyboardInterrupt:
         pass
+    except SystemExit:
+        raise
     except OSError as e:
         # Single instance guard: if the port is already served by a healthy
         # proxy, exit quietly instead of crashing on every watchdog tick.

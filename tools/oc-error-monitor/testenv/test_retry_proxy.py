@@ -1,4 +1,4 @@
-"""Offline test suite for retry_proxy.py.
+﻿"""Offline test suite for retry_proxy.py.
 
 Everything runs inside this project:
   * the upstream is mock_gateway.py on loopback
@@ -13,6 +13,7 @@ import os
 import shutil
 import socket
 import subprocess
+import threading
 import sys
 import time
 from pathlib import Path
@@ -50,7 +51,7 @@ def check(name, cond, detail=""):
     return bool(cond)
 
 
-def start_proxy(port, upstream, attempts="4", proxy_upstream="", timeout="10"):
+def start_proxy(port, upstream, attempts="4", proxy_upstream="", timeout="10", handover=False, ports=None):
     env = os.environ.copy()
     env.update(
         {
@@ -64,9 +65,14 @@ def start_proxy(port, upstream, attempts="4", proxy_upstream="", timeout="10"):
             "NO_PROXY": "*",
         }
     )
+    if ports:
+        env["RETRY_PROXY_PORTS"] = ports
     log = open(RUN_DIR / "proxy.stdout.log", "a", encoding="utf-8")
+    args = [sys.executable, str(RUN_DIR / "retry_proxy.py")]
+    if handover:
+        args.append("--handover")
     return subprocess.Popen(
-        [sys.executable, str(RUN_DIR / "retry_proxy.py")],
+        args,
         env=env,
         stdout=log,
         stderr=subprocess.STDOUT,
@@ -121,9 +127,12 @@ def post(port, body=None, path="/v1/chat/completions", timeout=30):
     return resp.status, data, ctype
 
 
-def plan(mock_port, responses, default="ok_sse"):
+def plan(mock_port, responses, default="ok_sse", delay=None):
     c = http.client.HTTPConnection("127.0.0.1", mock_port, timeout=5)
-    c.request("POST", "/__plan", body=json.dumps({"responses": responses, "default": default}))
+    payload = {"responses": responses, "default": default}
+    if delay is not None:
+        payload["delay"] = delay
+    c.request("POST", "/__plan", body=json.dumps(payload))
     r = c.getresponse()
     r.read()
     c.close()
@@ -138,11 +147,23 @@ def mock_counts(mock_port):
     return d["counts"]
 
 
+def _owns(port, pid):
+    """True when the given pid listens on the port."""
+    try:
+        sys.path.insert(0, str(TOOLS))
+        import port_owner
+
+        return any(o.get("pid") == pid for o in port_owner.owners(port))
+    except Exception:
+        return False
+
+
 def main():
     if RUN_DIR.exists():
         shutil.rmtree(RUN_DIR, ignore_errors=True)
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy(PROXY_SRC, RUN_DIR / "retry_proxy.py")
+    shutil.copy(PROXY_SRC.parent / "ui.html", RUN_DIR / "ui.html")
 
     mock_srv, _, mock_port = mock_gateway.start(port=0)
     proxy_port = free_port()
@@ -233,8 +254,130 @@ def main():
             proc3.kill()
         check("exit code 0", rc == 0, f"rc={rc}")
         check("first instance still serving", wait_health(proxy_port, timeout=5))
-    finally:
+
+        print("\n== 9. dashboard and manual control ==")
+        c = http.client.HTTPConnection("127.0.0.1", proxy_port, timeout=5)
+        c.request("GET", "/__ui")
+        r = c.getresponse()
+        page = r.read()
+        c.close()
+        check("/__ui serves the dashboard", r.status == 200 and b"Retry Proxy" in page, f"status={r.status}")
+
+        def ctl(payload):
+            cc = http.client.HTTPConnection("127.0.0.1", proxy_port, timeout=5)
+            cc.request("POST", "/__control", body=json.dumps(payload).encode(),
+                       headers={"Content-Type": "application/json"})
+            rr = cc.getresponse()
+            data = json.loads(rr.read())
+            cc.close()
+            return rr.status, data
+
+        st, d = ctl({"action": "pause"})
+        check("pause accepted", st == 200 and d.get("ok") is True, str(d))
+        s_p = stats(proxy_port)
+        check("paused flag visible in stats", s_p["settings"]["paused"] is True, str(s_p["settings"]))
+
+        plan(mock_port, ["ip_rep", "ok_sse"])
+        a0 = s_p["attempts"]
+        st, body, _ = post(proxy_port)
+        s_p2 = stats(proxy_port)
+        check("paused = pass through, no retry", st == 403, f"status={st}")
+        check("paused = exactly one attempt", s_p2["attempts"] == a0 + 1, f"{a0} -> {s_p2['attempts']}")
+
+        ctl({"action": "resume"})
+        st, d = ctl({"action": "set", "attempts": 2, "force_route": "proxy"})
+        s_c = stats(proxy_port)
+        check("set applies attempts", s_c["settings"]["attempts"] == 2, str(s_c["settings"]["attempts"]))
+        check("set applies route", s_c["settings"]["force_route"] == "proxy", str(s_c["settings"]["force_route"]))
+
+        ctl({"action": "reset"})
+        s_r = stats(proxy_port)
+        check("reset zeroes counters", s_r["requests"] == 0 and s_r["attempts"] == 0, f"{s_r['requests']}/{s_r['attempts']}")
+        ctl({"action": "set", "attempts": 4, "force_route": None})
+
+        print("\n== 10. live event feed ==")
+        sock = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
+        sock.sendall(b"GET /__events HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\n\r\n")
+        sock.settimeout(5)
+        buf = b""
+        try:
+            while b"data: " not in buf:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+        except socket.timeout:
+            pass
+        sock.close()
+        check("SSE stream opens with 200", buf.startswith(b"HTTP/1.1 200") or buf.startswith(b"HTTP/1.0 200"), buf[:40].decode("latin1"))
+        check("SSE pushes JSON events", b'"attempts"' in buf and b'"ts"' in buf, buf[-160:].decode("latin1", "replace"))
+
+        print("\n== 11. zero-downtime handover ==")
+        old_pid = stats(proxy_port)["pid"]
+        proc4 = start_proxy(proxy_port, f"http://127.0.0.1:{mock_port}/v1", handover=True)
+        time.sleep(1.5)
+        check("handover instance is alive (bound alongside)", proc4.poll() is None, f"rc={proc4.poll()}")
         proc.kill()
+        proc.wait(timeout=10)
+        time.sleep(0.4)
+        st, body, _ = post(proxy_port)
+        check("still serving after the old instance exits", st == 200, f"status={st}")
+        check("new pid now answers /__health", stats(proxy_port)["pid"] == proc4.pid,
+              f"{stats(proxy_port)['pid']} vs {proc4.pid}")
+        # The handover instance is the live one now; keep it for the next cases.
+        proc.wait(timeout=10)
+        proc = proc4
+        print("\n== 12. a probe of our own root is answered locally, not by the gateway ==")
+        c = http.client.HTTPConnection("127.0.0.1", proxy_port, timeout=5)
+        c.request("GET", "/")
+        r = c.getresponse()
+        root = r.read()
+        c.close()
+        check("GET / is 200 with local metadata", r.status == 200 and b"retry proxy" in root, f"status={r.status} body={root[:120]!r}")
+
+        print("\n== 13. a drain lets an in-flight request finish ==")
+        plan(mock_port, ["slow"], delay=2.5)
+        slow = threading.Thread(target=lambda: post(proxy_port, timeout=60), daemon=True)
+        slow.start()
+        time.sleep(0.8)
+        st, d = ctl({"action": "drain", "pid": proc.pid})
+        check("drain accepted on the addressed instance", st == 200 and d.get("ok") is True, str(d))
+        time.sleep(0.5)
+        check("proxy is still alive while draining", proc.poll() is None, f"rc={proc.poll()}")
+        slow.join(timeout=20)
+        check("the in-flight request completed", not slow.is_alive())
+        time.sleep(1.0)
+        check("proxy exited after the drain", proc.poll() is not None, f"rc={proc.poll()}")
+        proc = None
+
+        print("\n== 14. a foreign server on the port pushes the proxy to the next one ==")
+        squatted = free_port()
+        spare = free_port()
+        squatter = subprocess.Popen(
+            [sys.executable, str(HERE / "squat_port.py"), str(squatted), "40"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        time.sleep(1.0)
+        proc5 = start_proxy(
+            squatted, f"http://127.0.0.1:{mock_port}/v1",
+            ports=f"{squatted},{spare}",
+        )
+        time.sleep(2.5)
+        check("the proxy is alive", proc5.poll() is None, f"rc={proc5.poll()}")
+        check("it left the squatted port alone", proc5.pid is not None and not _owns(squatted, proc5.pid))
+        check("it serves on the next port", wait_health(spare, timeout=5),
+              f"spare={spare} squatted={squatted}")
+        published = (RUN_DIR / "active-port.txt")
+        if published.exists():
+            check("it published the active port", published.read_text().strip() == str(spare),
+                  published.read_text().strip())
+        proc5.kill()
+        squatter.kill()
+        squatter.wait(timeout=10)
+
+    finally:
+        if proc is not None:
+            proc.kill()
         mock_srv.shutdown()
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)

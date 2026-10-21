@@ -473,15 +473,79 @@ provider.<id>.models.<model>.provider.api  ✅ 有效（44 个 free 模型都指
 
 `testenv/mock_gateway.py` 是一个假网关，复制真网关的所有脾气
 （IP 信誉 403、身份闸 403、429、503、空流、SSE 截断），并强制真实的请求形状规则。
-`testenv/test_retry_proxy.py` 用它跑 8 个场景 / 26 项断言：
+`testenv/test_retry_proxy.py` 用它跑 14 个场景 / 48 项断言：
 
 ```powershell
 python tools\oc-error-monitor\testenv\test_retry_proxy.py
-# 26/26 checks passed
+# 48/48 checks passed
 ```
 
 整个测试**不碰 Clash、不碰真网关、不碰你的任何配置文件**，
 代理副本跑在 `testenv/_run/`，日志也落在那里。
+
+## 仪表盘与手动介入（`http://127.0.0.1:<端口>/__ui`）
+
+代理自带一个零依赖的网页仪表盘（单文件 `ui.html`，无外部资源）：
+
+```powershell
+Start-Process http://127.0.0.1:8788/__ui
+```
+
+| 区域 | 内容 |
+|---|---|
+| 顶部 | 在线/失败/暂停状态、端口、pid、运行时长 |
+| 六个 KPI | 请求数、救回率、需重试数、失败数、IP 信誉占比、SSE 截断数 |
+| 图表 | 最近 3 分钟：一次成功 / 重试后成功 / 仍失败（2 秒一个桶） |
+| 分类 | 每次尝试的分类占比（OK / IP_REP / EMPTY_STREAM / IDENTITY…） |
+| 手动介入 | 暂停/恢复重试、最大尝试次数、超时、强制线路、退避序列、清零计数、零停机重启、停止代理 |
+| 实时请求 | `/__events` SSE 推送：时间、模型、尝试链、耗时、字节数、线路 |
+| 诊断 | 复制诊断 JSON / 打开 `/__stats` |
+
+控制接口（也可脚本调用）：
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8788/__control `
+  -Body '{"action":"pause"}' -ContentType application/json
+```
+
+`action` 取值：`pause` / `resume` / `set`(attempts,timeout,backoff,force_route) /
+`reset` / `restart` / `shutdown` / `drain`。
+
+## 端口独占：为什么代理会换端口
+
+Windows 的 socket 默认带 `SO_REUSEADDR`，**允许直接绑定别人正在监听的端口**。
+所以「试着绑一下」根本测不出冲突——本机就真出现过：
+
+```text
+8787  被 playwright-mcp 的 @hono/node-server (node.exe server.mjs) 抢占
+       代理随后也绑上 8787 -> 两个服务共享端口，连接随机落到其中一个
+       -> 你的请求有的进代理、有的进 node -> "Provider request failed with HTTP 404: not found"
+```
+
+现在代理启动时用 **Windows IP Helper API**（`GetExtendedTcpTable`，psutil 内部用的同一张表）
+直接问系统「这个端口归谁」，发现是别人的就**换到下一个端口**：
+
+```powershell
+python tools\oc-error-monitor\port_owner.py          # 全部监听端口 + 归属进程
+python tools\oc-error-monitor\port_owner.py 8787 8788
+```
+
+代理把实际使用的端口写进 `active-port.txt`，supervisor 读到端口变了就
+**自动改写 `opencode.json` 里 44 个 free 模型的指向**（改前自动备份），
+所以换端口不需要你动手。
+
+## 零停机热切换
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\oc-error-monitor\restart-retry-proxy.ps1 -Handover
+```
+
+流程：新实例先在同一个端口上起来（socket 不断）→ 通过**文件**请求旧实例排空退出
+（不能用 HTTP：两个实例同时监听时 Windows 会把新连接随机给其中一个）→
+旧实例停止接受新连接、**等在途请求跑完**再关 socket 退出。
+
+实测：切换瞬间 80 次健康检查 **79 成功 / 1 失败**（那 1 次是旧 socket 关闭时
+积压连接被 RST），端到端耗时 0 ms。普通模式（先停后起）停机约 2.3–4 秒。
 
 ## 技能 frontmatter 修复
 
