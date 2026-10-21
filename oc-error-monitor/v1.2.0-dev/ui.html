@@ -45,6 +45,10 @@
   .net-live{grid-column:span 5}
   .net-members{grid-column:span 7}
   .net-groups{grid-column:span 5}
+  .rt-decision{grid-column:span 4}
+  .rt-policy{grid-column:span 4}
+  .rt-families{grid-column:span 4}
+  .rt-members{grid-column:span 12}
   .logs{grid-column:span 12}
   canvas{width:100%;height:150px;display:block}
   .legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--mut);font-size:11px;margin-top:6px}
@@ -104,7 +108,8 @@
     grid-column:span 12;min-width:0}
   @media (max-width:900px){
     .kpis{grid-template-columns:repeat(3,1fr)}
-    .chart,.classes,.net-main,.net-live,.net-members,.net-groups,.diag{grid-column:span 12}
+    .chart,.classes,.net-main,.net-live,.net-members,.net-groups,.diag,
+    .rt-decision,.rt-policy,.rt-families,.rt-members{grid-column:span 12}
   }
   @media (max-width:420px){ .kpis{grid-template-columns:repeat(2,1fr)} .wrap{padding:12px 10px 30px} }
 </style>
@@ -126,6 +131,7 @@
   <nav id="nav">
     <button data-view="overview">总览</button>
     <button data-view="network">网络</button>
+    <button data-view="route">路由</button>
     <button data-view="logs">日志</button>
     <button data-view="settings">设置</button>
   </nav>
@@ -213,6 +219,75 @@
         <div class="scroll"><table>
           <thead><tr><th>分组</th><th>当前</th><th>候选</th></tr></thead>
           <tbody id="net-groups"><tr><td colspan="3" class="meta">–</td></tr></tbody>
+        </table></div>
+      </section>
+    </section>
+
+    <!-- ======================= 路由 ======================= -->
+    <section class="view" id="v-route">
+      <section class="card rt-decision">
+        <h2>路由决策</h2>
+        <div class="row"><span class="k">当前出口成员</span><span class="v big" id="rt-current">–</span></div>
+        <div class="row"><span class="k">选择依据</span><span class="v" id="rt-via">–</span></div>
+        <div class="row"><span class="k">候选池</span><span class="v" id="rt-pool">–</span></div>
+        <div class="row"><span class="k">切换次数</span><span class="v" id="rt-switches">–</span></div>
+        <div class="row"><span class="k">上次切换</span><span class="v" id="rt-last">–</span></div>
+        <div class="row"><span class="k">账本文件</span><span class="v" id="rt-statepath">–</span></div>
+        <div class="row"><span class="k">配置文件</span><span class="v" id="rt-setpath">–</span></div>
+        <div class="row"><span class="k">落盘状态</span><span class="v" id="rt-persist">–</span></div>
+      </section>
+
+      <section class="card rt-policy">
+        <h2>策略</h2>
+        <div class="row">
+          <span class="k">策略</span>
+          <span class="v"><select id="rt-strategy"></select></span>
+        </div>
+        <div class="row">
+          <span class="k">锁定成员</span>
+          <span class="v"><input id="rt-pin" type="text" placeholder="留空 = 不锁定" style="min-width:180px" /></span>
+        </div>
+        <div class="row">
+          <span class="k">失败即换阈值</span>
+          <span class="v"><input id="rt-threshold" type="number" min="1" max="10" style="width:70px" /></span>
+        </div>
+        <div class="row">
+          <span class="k">成员冷却</span>
+          <span class="v"><input id="rt-cooldown" type="number" min="5" max="3600" step="5" style="width:90px" /> 秒</span>
+        </div>
+        <div class="row">
+          <span class="k">整族冷却</span>
+          <span class="v"><input id="rt-famthr" type="number" min="2" max="30" style="width:70px" /> 个成员后 ·
+            <input id="rt-famcool" type="number" min="60" max="7200" step="30" style="width:90px" /> 秒</span>
+        </div>
+        <div class="btnrow" style="margin-top:10px">
+          <button id="rt-apply" class="primary">应用</button>
+          <button id="rt-clear">清空账本</button>
+          <span class="meta" id="rt-hint"></span>
+        </div>
+        <div class="meta" style="margin-top:8px" id="rt-rotate"></div>
+      </section>
+
+      <section class="card rt-families">
+        <h2>被整族判死的线路</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>线路族</th><th>近期失败</th><th>累计失败</th><th>冷却剩余</th></tr></thead>
+          <tbody id="rt-families"><tr><td colspan="4" class="meta">–</td></tr></tbody>
+        </table></div>
+      </section>
+
+      <section class="card rt-members">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+          <h2 style="margin:0">成员健康</h2>
+          <div class="btnrow" style="margin:0">
+            <button class="on" data-rt="all">全部</button>
+            <button data-rt="bad">只看有问题的</button>
+          </div>
+        </div>
+        <div class="meta" id="rt-count" style="margin-bottom:6px"></div>
+        <div class="scroll"><table>
+          <thead><tr><th>成员</th><th>线路族</th><th>成功</th><th>失败</th><th>成功率</th><th>延迟</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="rt-rows"><tr><td colspan="8" class="meta">–</td></tr></tr></tbody>
         </table></div>
       </section>
     </section>
@@ -305,6 +380,8 @@ const store = {
   logQ: "",
   probe: null,
   netFilter: "all",
+  route: null,
+  routeFilter: "all",
   view: "overview",
 };
 const $ = (id) => document.getElementById(id);
@@ -478,6 +555,99 @@ function renderNet(n){
   ).join('') : '<tr><td colspan="3" class="meta">–</td></tr>';
 }
 
+/* ------------------------------ route ----------------------------------- */
+function renderRoute(r){
+  store.route = r;
+  if(!r){ return; }
+  if(!r.ok){
+    $('rt-current').textContent = '–';
+    $('rt-pool').textContent = '控制器不可用';
+    $('rt-rows').innerHTML = '<tr><td colspan="8" class="meta">候选池不可用</td></tr>';
+    return;
+  }
+  const st = r.state || {};
+  const pool = r.pool || {};
+  $('rt-current').textContent = st.current || '–';
+  $('rt-via').textContent = st.current
+    ? '成员账本决定'
+    : ('尚未选定 · mihomo 现在用 ' + (pool.now || '–'));
+  $('rt-pool').textContent = (pool.group||'–') + ' / ' + (pool.count||0) + ' 个候选 · 现在 ' + (pool.now||'–');
+  $('rt-switches').textContent = st.switches || 0;
+  const last = st.last_switch;
+  $('rt-last').textContent = last
+    ? (last.at ? new Date(last.at*1000).toLocaleTimeString() : '') +
+      '  ' + (last.from||'') + ' → ' + (last.class||'') +
+      (last.family_cooled ? '（整族判死 ' + esc(last.family||'') + '）' : '')
+    : '–';
+  $('rt-statepath').textContent = r.state_path || '–';
+
+  $('rt-setpath').textContent = r.settings_path || (store.stats && store.stats.settings_path) || '–';
+  $('rt-persist').innerHTML = (r.settings_path || (store.stats && store.stats.settings_path))
+    ? '<span style="color:var(--ok)">已落盘</span> <span class="meta">重启后保留</span>'
+    : '<span class="meta">未落盘</span>';
+
+  const sel = $('rt-strategy');
+  const want = String(r.strategy || '');
+  const opts = (r.strategies || []).slice();
+  if(opts.indexOf(want) < 0) opts.push(want);
+  if(sel.dataset.sig !== opts.join(',')){
+    sel.dataset.sig = opts.join(',');
+    sel.innerHTML = opts.map(o =>
+      '<option value="'+esc(o)+'"'+(o===want?' selected':'')+'>'+esc(o)+'</option>').join('');
+  }
+  if(document.activeElement !== $('rt-pin')) $('rt-pin').value = r.pin || '';
+  if(document.activeElement !== $('rt-threshold')) $('rt-threshold').value = r.threshold || 1;
+  if(document.activeElement !== $('rt-cooldown')) $('rt-cooldown').value = r.cooldown_s || 120;
+  if(document.activeElement !== $('rt-famthr')) $('rt-famthr').value = r.family_threshold || 3;
+  if(document.activeElement !== $('rt-famcool')) $('rt-famcool').value = r.family_cooldown_s || 900;
+
+  $('rt-rotate').textContent = '可触发换节点的失败类：' + ((r.rotate_on||[]).join('、') || '无') +
+    '（其余失败只记账，不动出口 IP）';
+
+  const fams = r.families || [];
+  $('rt-families').innerHTML = fams.length ? fams.map(f =>
+    '<tr><td>'+esc(f.name||'')+'</td><td>'+(f.recent||0)+'</td><td>'+Math.round(f.fail||0)+'</td>'+
+    '<td>'+(f.cooling ? (f.cooldown_s+' 秒') : '<span class="meta">–</span>')+'</td></tr>'
+  ).join('') : '<tr><td colspan="4" class="meta">没有被判死的线路族</td></tr>';
+
+  const members = (r.members || []).slice();
+  const bad = m => m.cooling || m.family_cooling || m.probe_dead || m.fail > 0;
+  const shown = store.routeFilter === 'bad' ? members.filter(bad) : members;
+  $('rt-count').textContent = members.length
+    ? members.length + ' 个成员 · 有记录 ' + members.filter(m=>m.ok>0||m.fail>0).length +
+      ' · 冷却中 ' + members.filter(m=>m.cooling||m.family_cooling).length
+    : '';
+  $('rt-rows').innerHTML = shown.length ? shown.map(m => {
+    const state = m.cooling ? '<span style="color:var(--warn)">成员冷却</span>'
+      : (m.family_cooling ? '<span style="color:var(--err)">整族冷却</span>'
+        : (m.probe_dead ? '<span style="color:var(--err)">探测不通</span>'
+          : (m.current ? '<span style="color:var(--ok)">当前</span>'
+            : (m.fail > 0 ? '<span style="color:var(--warn)">有失败</span>'
+              : '<span class="meta">未用</span>'))));
+    const act = '<button class="mini" data-pin="'+esc(m.name)+'">锁定</button>';
+    return '<tr><td title="'+esc(m.name)+'">'+esc(m.name)+'</td>' +
+      '<td><span class="meta">'+esc(m.family||'')+'</span></td>' +
+      '<td>'+(m.ok||0)+'</td><td>'+Math.round((m.fail||0)*100)/100+'</td>' +
+      '<td>'+Math.round((m.ok_rate||0)*1000)/10+'%</td>' +
+      '<td>'+(m.delay ? m.delay+'ms' : '<span class="meta">–</span>')+'</td>' +
+      '<td>'+state+'</td><td>'+act+'</td></tr>';
+  }).join('') : '<tr><td colspan="8" class="meta">没有匹配的成员</td></tr>';
+  $('rt-rows').querySelectorAll('button[data-pin]').forEach(b => {
+    b.onclick = () => routeAction({action:'pin', name: b.dataset.pin}, b);
+  });
+}
+
+async function routeAction(payload, btn){
+  try{
+    const r = await fetch('/__route',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify(payload)});
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || j.ok===false) throw new Error(j.reason||('HTTP '+r.status));
+    renderRoute(j.route || await loadRoute());
+    toast('已生效');
+  }catch(e){ toast('失败：'+e.message); }
+}
+
 /* ------------------------------ logs ------------------------------------ */
 function logDetail(rec){
   const d = rec.detail || [];
@@ -583,7 +753,7 @@ function addEvent(ev){
 }
 
 /* ----------------------------- router ----------------------------------- */
-const VIEWS = ['overview','network','logs','settings'];
+const VIEWS = ['overview','network','route','logs','settings'];
 function show(name){
   if(!VIEWS.includes(name)) name='overview';
   store.view = name;
@@ -593,6 +763,7 @@ function show(name){
   document.querySelectorAll('#nav button').forEach(b=>
     b.setAttribute('aria-current', String(b.dataset.view===name)));
   if(name==='network') loadNet();
+  if(name==='route') loadRoute();
   if(name==='logs') loadLogs();
   if(name==='overview') drawChart();
 }
@@ -669,6 +840,31 @@ document.querySelectorAll('#v-network button[data-net]').forEach(b=>{
     if(store.net) renderNet(store.net);
   };
 });
+document.querySelectorAll('#v-route button[data-rt]').forEach(b=>{
+  b.onclick = ()=>{
+    store.routeFilter = b.dataset.rt || 'all';
+    document.querySelectorAll('#v-route button[data-rt]').forEach(x=>x.classList.toggle('on', x===b));
+    if(store.route) renderRoute(store.route);
+  };
+});
+$('rt-apply').onclick = ()=>{
+  const pin = $('rt-pin').value.trim();
+  const knobs = {
+    threshold: Number($('rt-threshold').value||0),
+    cooldown_s: Number($('rt-cooldown').value||0),
+    family_threshold: Number($('rt-famthr').value||0),
+    family_cooldown_s: Number($('rt-famcool').value||0),
+  };
+  routeAction({action:'pin', name: pin}).then(()=>{
+    routeAction({action:'strategy', value: $('rt-strategy').value}).then(()=>{
+      routeAction({action:'set', ...knobs});
+    });
+  });
+};
+$('rt-clear').onclick = ()=>{
+  if(!confirm('清空成员账本：所有历史成败记录归零，被冷却的成员立即可用。继续？')) return;
+  routeAction({action:'clear'});
+};
 
 /* ------------------------------ polling --------------------------------- */
 async function load(){
@@ -681,6 +877,18 @@ async function load(){
 async function loadNet(){
   try{ renderNet(await api('/__net')); }
   catch(e){ $('net-chain').innerHTML='<span class="meta">读取失败：'+esc(e.message)+'</span>'; }
+}
+
+async function loadRoute(){
+  try{
+    const j = await api('/__route');
+    renderRoute(j);
+    return j;
+  }catch(e){
+    $('rt-current').textContent = '–';
+    $('rt-pool').textContent = '读取失败：' + e.message;
+    return null;
+  }
 }
 
 async function probeNodes(){

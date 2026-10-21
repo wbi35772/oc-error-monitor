@@ -39,6 +39,8 @@ Endpoints
     POST/GET <anything>        proxied to RETRY_PROXY_UPSTREAM
     GET  /__stats              counters as JSON
     GET  /__pool               candidate members (mihomo group + DIRECT), L0
+    GET  /__route              ledger, health and the member in use, L1-L3
+    POST /__route              {"action": "pin|strategy|clear|switch"}
     GET  /__health             {"ok": true}
 
 Durable state
@@ -192,10 +194,22 @@ DEFAULT_ROUTE = {
     "select": {
         "strategy": "least_fail",
         "pin": None,
+        # 1, not 3: controller.PERSISTENT_MIN_FAILURES is 1, and the backtest
+        # found that waiting for a burst of three only ever caught sessions
+        # that had already recovered.
+        "threshold": 1,
         "window_s": 600,
-        "threshold": 3,
         "cooldown_s": 120,
         "decay_half_life_s": 3600,
+        # Whole families die together. Measured on the live box: 96 of the 216
+        # testable members never answer in any sweep, and they are not spread
+        # out but clustered (66 优选域名 + 30 IPv6优选). Cooling one member at a
+        # time walks straight through the family, so after
+        # family_threshold distinct members of one family fail inside window_s,
+        # the family is skipped as a unit. This is also what keeps a fresh
+        # batch of cfnew Workers from costing three dead attempts each.
+        "family_threshold": 3,
+        "family_cooldown_s": 900,
     },
     # rotate_on mirrors controller.SWITCH_CLASSES, the backtested set that may
     # move an exit IP. It is deliberately small: AUTH_IP_REPUTATION belongs to
@@ -207,6 +221,12 @@ DEFAULT_ROUTE = {
     "fallback": ["proxy", "direct"],
     "probe": {
         "enabled": True,
+        # auto=false: a 218 node sweep is two hundred delay tests, so it stays
+        # a deliberate action (the panel button / __net/probe?start=1) instead
+        # of a minute-by-minute habit. Whenever a run does happen, the router
+        # uses its verdicts until they are stale_s old.
+        "auto": False,
+        "stale_s": 300,
         "interval_s": 60,
         "target": "http://cp.cloudflare.com/generate_204",
         "timeout_s": 5,
@@ -915,11 +935,763 @@ def discover_pool(force=False):
         )
     out["members"] = members
     out["count"] = len(members)
+    # `now` rides along on the same cached response: the router needs to know
+    # which member is actually in use to account for it, and a second call per
+    # attempt would be pure overhead.
+    if group:
+        obj = proxies.get(group) or {}
+        out["group_type"] = obj.get("type")
+        out["now"] = obj.get("now")
     out["ok"] = bool(group and members)
     with _pool_lock:
         _pool_cache["at"] = time.time()
         _pool_cache["data"] = out
     return out
+
+
+# ---------------------------------------------------------------------------
+# Route ledger, health, strategies (L1-L3)
+#
+# L0 gave the pool an address: a member can be named. This part decides which
+# member a request leaves through, remembers how each one behaved, and moves
+# off one that stops working.
+#
+# Three sources of truth, in order of authority:
+#
+#   1. select.pin        an explicit member, including DIRECT. Wins over all.
+#   2. SETTINGS.force_route  the older two-value switch, still honoured:
+#      "direct" means the DIRECT member, "proxy" means "let mihomo decide".
+#   3. select.strategy   pick from the healthy candidates and stay there until
+#      the member is cooled down, then pick again.
+#
+# Health has two layers and they are deliberately not merged:
+#
+#   L1 probe verdict   a member the delay test could not reach is skipped
+#                      until the verdict goes stale (probe.stale_s). This
+#                      catches a node that is simply gone, cheaply.
+#   L2 real outcomes   a request that failed with a rotate_on class cools the
+#                      member down for cooldown_s. This catches a node that
+#                      answers but is rejected upstream, which no delay test
+#                      can see.
+#
+# Weights decay with a half life, so a member that was bad an hour ago is not
+# still being punished, and a node added five minutes ago (a fresh cfnew
+# Worker, say) starts from a neutral score rather than from the pool average.
+# ---------------------------------------------------------------------------
+DIRECT = "DIRECT"
+
+ROUTE_STATE_PATH = os.path.join(HERE, ROUTE["persist"].get("path") or "route_state.json")
+
+_route_state = {
+    "nodes": {},        # member name -> ledger entry
+    "families": {},     # node family -> whole-batch health, see family_threshold
+    "current": None,    # the member in use, None after a cooldown
+    "switches": 0,
+    "rr": 0,
+    "last_switch": None,
+}
+_route_lock = threading.Lock()
+_route_dirty = [False]
+_route_saved_at = [0.0]
+
+
+def _decay(entry, now=None):
+    """Halve the accumulated failures once per decay_half_life_s."""
+    now = now if now is not None else time.time()
+    half_life = max(60.0, float(ROUTE["select"].get("decay_half_life_s") or 3600))
+    last = entry.get("decay_ts")
+    if not isinstance(last, (int, float)):
+        # A brand new entry starts its clock now rather than inheriting age.
+        entry["decay_ts"] = now
+        return entry
+    dt = now - last
+    if dt <= 0:
+        return entry
+    factor = 0.5 ** (dt / half_life)
+    entry["fail"] = round(float(entry.get("fail") or 0.0) * factor, 6)
+    by_class = entry.get("fail_by_class") or {}
+    for cls in list(by_class):
+        by_class[cls] = round(float(by_class[cls]) * factor, 6)
+    entry["decay_ts"] = now
+    return entry
+
+
+def _entry(name):
+    """The ledger row for a member, created neutral on first sight."""
+    entry = _route_state["nodes"].get(name)
+    if entry is None:
+        entry = {
+            "ok": 0,
+            "fail": 0.0,
+            "fail_by_class": {},
+            "last_ok_ts": None,
+            "last_fail_ts": None,
+            "ewma_ms": None,
+            "cooldown_until": 0.0,
+            "decay_ts": time.time(),
+        }
+        _route_state["nodes"][name] = entry
+    return entry
+
+
+def _probe_verdict(name):
+    """(dead, delay) from the last probe run, or (None, None) if it is stale."""
+    stale = max(30.0, float(ROUTE["probe"].get("stale_s") or 300))
+    with _probe_lock:
+        state = dict(_probe_state)
+    finished = state.get("finished_at") or 0.0
+    if not finished or time.time() - finished > stale:
+        return None, None
+    row = (state.get("nodes") or {}).get(name) or {}
+    return bool(row.get("dead")), row.get("delay")
+
+
+def member_health(name, now=None, families=None):
+    now = now if now is not None else time.time()
+    family = _node_family(name)
+    with _route_lock:
+        # Read only. Routing status walks every member of a 218 node pool, and
+        # creating a ledger row for each one turned "show me the ledger" into
+        # "write 218 rows", which also made /__route's clear action look like
+        # it had not worked.
+        entry = _route_state["nodes"].get(name)
+        if entry is not None:
+            _decay(entry, now)
+        else:
+            entry = {}
+        cooling = float(entry.get("cooldown_until") or 0.0) > now
+        if families is None:
+            # Single lookup: fine for one member, but a caller walking the
+            # whole pool should pass a _family_snapshot() instead.
+            fam = _family_row(family, now)
+        else:
+            fam = families.get(family) or {"cooling": False, "recent": 0}
+        row = {
+            "ok": entry.get("ok", 0),
+            "fail": entry.get("fail", 0.0),
+            "fail_by_class": dict(entry.get("fail_by_class") or {}),
+            "last_ok_ts": entry.get("last_ok_ts"),
+            "last_fail_ts": entry.get("last_fail_ts"),
+            "ewma_ms": entry.get("ewma_ms"),
+            "last_raw_class": entry.get("last_raw_class"),
+            "cooldown_until": entry.get("cooldown_until") or 0.0,
+        }
+    dead, delay = _probe_verdict(name)
+    row.update({
+        "name": name,
+        "family": family,
+        "cooling": cooling,
+        "cooldown_s": max(0, int(row["cooldown_until"] - now)),
+        # A family of one (a lone cfnew Worker, a node named without a -NN
+        # suffix) has no siblings to condemn it, so it is never family-cooled.
+        "family_cooling": bool(fam["cooling"]) and family != name,
+        "family_recent_fails": fam["recent"],
+        "probe_dead": bool(dead),
+        "delay": delay,
+        "ok_rate": round((row["ok"] + 1) / (row["ok"] + row["fail"] + 2), 4),
+    })
+    return row
+
+
+def _family_row(family, now=None):
+    now = now if now is not None else time.time()
+    fam = (_route_state.get("families") or {}).get(family) or {}
+    window = max(60.0, float(ROUTE["select"].get("window_s") or 600))
+    recent = 0
+    for name, entry in (_route_state.get("nodes") or {}).items():
+        if _node_family(name) != family:
+            continue
+        last = entry.get("last_fail_ts")
+        if isinstance(last, (int, float)) and now - last <= window:
+            recent += 1
+    return {
+        "cooling": float(fam.get("cooldown_until") or 0.0) > now,
+        "cooldown_until": fam.get("cooldown_until") or 0.0,
+        "cooldown_s": max(0, int((fam.get("cooldown_until") or 0.0) - now)),
+        "fail": fam.get("fail") or 0.0,
+        "recent": recent,
+    }
+
+
+def _family_snapshot(now=None):
+    """`_family_row` for every family in one pass over the ledger.
+
+    Called on the request path, where a per-member scan would be 218 full
+    ledger walks per pick.
+    """
+    now = now if now is not None else time.time()
+    window = max(60.0, float(ROUTE["select"].get("window_s") or 600))
+    recent = {}
+    for name, entry in (_route_state.get("nodes") or {}).items():
+        last = entry.get("last_fail_ts")
+        if isinstance(last, (int, float)) and now - last <= window:
+            fam = _node_family(name)
+            recent[fam] = recent.get(fam, 0) + 1
+    out = {}
+    for fam_name in set(recent) | set(_route_state.get("families") or {}):
+        row = (_route_state.get("families") or {}).get(fam_name) or {}
+        until = row.get("cooldown_until") or 0.0
+        out[fam_name] = {
+            "cooling": float(until) > now,
+            "cooldown_until": until,
+            "cooldown_s": max(0, int(float(until) - now)),
+            "fail": row.get("fail") or 0.0,
+            "recent": recent.get(fam_name, 0),
+        }
+    return out
+
+
+def _delay_key(member):
+    """A sort key for latency: probe first, then what mihomo recorded, then
+    anything unknown, which must never win by looking like zero."""
+    health = member.get("health") or {}
+    for value in (health.get("delay"), member.get("delay"), member.get("history_delay")):
+        if isinstance(value, (int, float)) and value > 0:
+            return float(value)
+    return float(10 ** 9)
+
+
+def _strat_least_fail(cands, current):
+    # `current` is accepted by every strategy so the registry stays uniform.
+    return sorted(cands, key=lambda m: (m["health"]["fail"], _delay_key(m), m["name"]))
+
+
+def _strat_ewma_ok(cands, current):
+    return sorted(cands, key=lambda m: (-m["health"]["ok_rate"], _delay_key(m), m["name"]))
+
+
+def _strat_lowest_latency(cands, current):
+    return sorted(cands, key=lambda m: (_delay_key(m), m["health"]["fail"], m["name"]))
+
+
+def _strat_round_robin(cands, current):
+    if not cands:
+        return cands
+    start = int(_route_state.get("rr") or 0) % len(cands)
+    return cands[start:] + cands[:start]
+
+
+def _strat_weighted_random(cands, current):
+    """Draw without replacement, weight = recent success rate."""
+    remaining = list(cands)
+    out = []
+    while remaining:
+        weights = [max(0.05, m["health"]["ok_rate"]) for m in remaining]
+        total = sum(weights)
+        point = random.random() * total
+        acc = 0.0
+        for i, weight in enumerate(weights):
+            acc += weight
+            if point <= acc:
+                out.append(remaining.pop(i))
+                break
+        else:
+            out.append(remaining.pop())
+    return out
+
+
+def _rank(order_fn):
+    """DIRECT is the safety net, not a preference.
+
+    Every strategy otherwise sorts by health alone, and with no data yet a
+    neutral DIRECT ('D' sorts before the emoji names) would win every tie and
+    quietly bypass the whole pool. A stable re-sort pushes it behind equals
+    without disturbing the strategy's own order.
+    """
+    def run(cands, current):
+        return sorted(order_fn(cands, current), key=lambda m: bool(m.get("direct")))
+    return run
+
+
+STRATEGIES = {
+    "least_fail": _rank(_strat_least_fail),
+    "ewma_ok": _rank(_strat_ewma_ok),
+    "lowest_latency": _rank(_strat_lowest_latency),
+    "round_robin": _rank(_strat_round_robin),
+    "weighted_random": _rank(_strat_weighted_random),
+}
+PASSIVE_STRATEGIES = ("off", "none", "mihomo", "manual")
+
+
+def policy_class(cls, err=None):
+    """Log vocabulary -> policy vocabulary.
+
+    classify() says what the log needed to say (IP_REP, RATE, 5XX);
+    controller.py says what may move an exit IP (NET_*). The ledger rotates on
+    the second set, and the two do not line up on their own: a probe that
+    found the error early read "ERR:URLError", which is in neither set, so the
+    four dead IPv6 members it hit were never cooled down and never skipped.
+
+    Unknown classes come back unchanged: recorded, never rotated on. That is
+    the safe default, because a wrong rotation moves everyone's exit IP.
+    """
+    if not cls:
+        return "UNKNOWN"
+    if cls == "OK":
+        return "OK"
+    if cls == "EMPTY_STREAM":
+        # 200 and then nothing: the gateway accepted the request and the
+        # stream died. Observed as a retryable stream failure, not a health
+        # signal about the client.
+        return "NET_STREAM"
+    if cls.startswith("ERR:"):
+        # Normalise the exception name and the message into one token stream:
+        # "ERR:ConnectionResetError" and "... connection reset ..." are the
+        # same failure and must not need two rules. The class name is camel
+        # case ("connectionreseterror") and the message is prose ("connection
+        # reset"), so compare with punctuation and spaces removed.
+        text = re.sub(r"[^a-z0-9]", "", ("%s %s" % (cls[4:], err or "")).lower())
+        if ("getaddrinfo" in text or "nameorservicenotknown" in text
+                or "nodenameorservname" in text):
+            return "NET_DNS"
+        if "timeout" in text or "timedout" in text:
+            return "NET_TIMEOUT"
+        if "certificate" in text or "selfsigned" in text or "certverify" in text:
+            return "NET_TLS"
+        if ("connectionrefused" in text or "connectionreset" in text
+                or "brokenpipe" in text or "connectionaborted" in text):
+            return "NET_CONNECT"
+        if "ssl" in text or "eof" in text or "handshake" in text:
+            # A handshake that dies mid-flight is the node, not our trust
+            # store: measured on the dead IPv6 members as
+            # UNEXPECTED_EOF_WHILE_READING.
+            return "NET_STREAM"
+        return cls
+    if cls == "IP_REP":
+        return "AUTH_IP_REPUTATION"
+    if cls == "IDENTITY":
+        return "AUTH_FREE_TIER"
+    if cls == "RATE":
+        return "RATE_LIMIT"
+    if cls == "5XX":
+        return "UPSTREAM_5XX"
+    if cls == "CF_UA":
+        return "CLIENT_REQUEST"
+    return cls
+
+
+def _usable(health):
+    """A member is usable unless it, or the family it belongs to, is out."""
+    return not (health["cooling"] or health["probe_dead"] or health["family_cooling"])
+
+
+def _healthy_members(pool, now=None):
+    """Pool members that are neither cooled down nor declared dead by a probe."""
+    now = now if now is not None else time.time()
+    families = _family_snapshot(now)
+    out = []
+    for member in pool.get("members") or []:
+        health = member_health(member["name"], now, families=families)
+        if not _usable(health):
+            continue
+        row = dict(member)
+        row["health"] = health
+        row["direct"] = member["name"] == DIRECT
+        out.append(row)
+    return out
+
+
+def _as_route(name, via, pool=None):
+    return {
+        "name": name,
+        "direct": name == DIRECT,
+        "via": via,
+        "group": (pool or {}).get("group"),
+        "group_type": (pool or {}).get("group_type"),
+        "now": (pool or {}).get("now"),
+    }
+
+
+def pick_route(force_direct=False):
+    """The member this attempt should leave through.
+
+    Called once per attempt, so it must stay cheap: the pool is discovered
+    through a cached controller response, and nothing here writes to mihomo.
+    """
+    pool = discover_pool()
+    if force_direct:
+        _route_state["current"] = DIRECT
+        return _as_route(DIRECT, "local fallback", pool)
+
+    pin = ROUTE["select"].get("pin")
+    if isinstance(pin, str) and pin.strip():
+        name = pin.strip()
+        _route_state["current"] = name
+        return _as_route(name, "pin", pool)
+
+    forced = SETTINGS.get("force_route")
+    if forced == "direct":
+        _route_state["current"] = DIRECT
+        return _as_route(DIRECT, "force_route", pool)
+    if forced == "proxy":
+        # Not a member choice at all: mihomo's own selection stands. The
+        # ledger still accounts against whatever it currently points at.
+        now_member = pool.get("now") or DIRECT
+        _route_state["current"] = now_member
+        return _as_route(now_member, "force_route:proxy", pool)
+
+    strategy = str(ROUTE["select"].get("strategy") or "least_fail").lower()
+    if strategy in PASSIVE_STRATEGIES:
+        now_member = pool.get("now") or DIRECT
+        _route_state["current"] = now_member
+        return _as_route(now_member, "mihomo", pool)
+
+    if not pool.get("ok"):
+        _route_state["current"] = DIRECT
+        return _as_route(DIRECT, "no pool: " + str(pool.get("reason") or pool.get("basis")), pool)
+
+    current = _route_state.get("current")
+    if not current:
+        # Adopt whatever mihomo already uses, when it is healthy. Moving the
+        # exit IP with no reason behind it costs every in-flight session, so
+        # the first decision of a fresh run should be "stay".
+        now_member = pool.get("now")
+        known = {m["name"] for m in pool.get("members") or []}
+        if now_member and now_member in known:
+            health = member_health(now_member)
+            if _usable(health):
+                _route_state["current"] = now_member
+                return _as_route(now_member, "adopted", pool)
+    if current:
+        health = member_health(current)
+        if _usable(health):
+            # Sticky on purpose. Switching exit IPs costs every in-flight
+            # session, so a member that is working keeps the job.
+            return _as_route(current, "sticky", pool)
+
+    candidates = _healthy_members(pool)
+    if not candidates:
+        _route_state["current"] = DIRECT
+        return _as_route(DIRECT, "every candidate is cooling", pool)
+
+    order = STRATEGIES.get(strategy) or _strat_least_fail
+    chosen = order(candidates, current)
+    name = chosen[0]["name"] if chosen else DIRECT
+    # Without this the decision was recomputed on every attempt and the
+    # strategy became an implicit round robin: each failure pushed the failed
+    # member down the ranking, so the next attempt moved to a fresh node
+    # whether or not that was wanted.
+    _route_state["current"] = name
+    if strategy == "round_robin":
+        _route_state["rr"] = int(_route_state.get("rr") or 0) + 1
+    return _as_route(name, "strategy:" + strategy, pool)
+
+
+def apply_route(route):
+    """Point the mihomo group at the chosen member, if that is a no-op away.
+
+    A Selector can be pinned, which is the real case here. An automatic group
+    (URLTest, Fallback, LoadBalance) re-decides on its own, and fighting it
+    would produce a switch every few seconds, so there the only lever the
+    router has is the DIRECT member.
+    """
+    if not route or route.get("direct"):
+        return route
+    group = route.get("group")
+    if not group:
+        return route
+    if route.get("group_type") not in (None, "Selector"):
+        route["apply_error"] = (
+            "group %r is a %s and re-selects on its own; only DIRECT can be pinned"
+            % (group, route.get("group_type"))
+        )
+        return route
+    if route.get("via") in ("force_route:proxy", "mihomo"):
+        return route
+    if route.get("via") == "sticky" and route.get("now") == route["name"]:
+        # Already where we want to be. Re-applying would be a controller write
+        # per request; *not* checking would let the ledger and mihomo drift
+        # apart after a restart resets the group's selection.
+        return route
+    try:
+        _mihomo_send(
+            "/proxies/%s" % urllib.parse.quote(group, safe=""),
+            _clash_secret(),
+            "PUT",
+            {"name": route["name"]},
+        )
+    except Exception as exc:
+        route["apply_error"] = "%s: %s" % (type(exc).__name__, exc)
+        return route
+    route["applied"] = True
+    _net_cache.update({"at": 0.0, "data": None})
+    with _pool_lock:
+        if _pool_cache.get("data"):
+            _pool_cache["data"]["now"] = route["name"]
+    return route
+
+
+def report_route(route, cls, status=None, elapsed_ms=None, err=None):
+    """Record what a member actually did, and cool it down if it failed badly.
+
+    `cls` arrives in the log vocabulary and is translated before it reaches
+    the ledger, so rotation and the log agree on what happened.
+    """
+    name = (route or {}).get("name")
+    if not name:
+        return
+    now = time.time()
+    rotate_on = set(ROUTE.get("rotate_on") or [])
+    policy = policy_class(cls, err)
+    with _route_lock:
+        entry = _decay(_entry(name), now)
+        if policy == "OK":
+            entry["ok"] = int(entry.get("ok") or 0) + 1
+            entry["last_ok_ts"] = now
+            if elapsed_ms:
+                prev = entry.get("ewma_ms")
+                entry["ewma_ms"] = (
+                    round(float(elapsed_ms), 1) if prev is None
+                    else round(float(prev) * 0.7 + float(elapsed_ms) * 0.3, 1)
+                )
+        else:
+            entry["fail"] = round(float(entry.get("fail") or 0.0) + 1.0, 6)
+            entry["last_fail_ts"] = now
+            entry["last_raw_class"] = cls
+            by_class = entry.setdefault("fail_by_class", {})
+            by_class[policy] = round(float(by_class.get(policy) or 0.0) + 1.0, 6)
+            threshold = max(1, int(ROUTE["select"].get("threshold") or 1))
+            if policy in rotate_on and by_class[policy] >= threshold:
+                entry["cooldown_until"] = now + max(
+                    5.0, float(ROUTE["select"].get("cooldown_s") or 120)
+                )
+                # Whole families answer or fail together, so count the family
+                # too. Without this the router walks the family one member at a
+                # time, three dead attempts per family, which is exactly what
+                # the live run showed.
+                family = _node_family(name)
+                fam_cooled = False
+                if family and family != name:
+                    fam = (_route_state.setdefault("families", {})
+                           .setdefault(family, {"fail": 0.0}))
+                    fam["fail"] = round(float(fam.get("fail") or 0.0) + 1.0, 6)
+                    fam["last_fail_ts"] = now
+                    row = _family_row(family, now)
+                    fam["cooled_members"] = row["recent"]
+                    if row["recent"] >= max(2, int(
+                            ROUTE["select"].get("family_threshold") or 3)):
+                        fam["cooldown_until"] = now + max(
+                            60.0,
+                            float(ROUTE["select"].get("family_cooldown_s") or 900),
+                        )
+                        fam["cooled_at"] = now
+                        fam_cooled = True
+                if _route_state.get("current") == name:
+                    _route_state["current"] = None
+                    _route_state["switches"] = int(_route_state.get("switches") or 0) + 1
+                _route_state["last_switch"] = {
+                    "at": now,
+                    "from": name,
+                    "family": family,
+                    "family_cooled": fam_cooled,
+                    "class": policy,
+                    "raw_class": cls,
+                    "status": status,
+                }
+        _route_dirty[0] = True
+    _route_maybe_save()
+
+
+def route_for_attempt(force_direct=False):
+    return apply_route(pick_route(force_direct=force_direct))
+
+
+def route_status():
+    pool = discover_pool()
+    now = time.time()
+    families = _family_snapshot(now)
+    rows = []
+    for member in pool.get("members") or []:
+        health = member_health(member["name"], now, families=families)
+        health["type"] = member.get("type")
+        health["family"] = member.get("family")
+        health["current"] = member["name"] == pool.get("now")
+        rows.append(health)
+    rows.sort(key=lambda r: (r["cooling"], r["family_cooling"], r["probe_dead"],
+                             -r["ok_rate"], _delay_key(r)))
+    with _route_lock:
+        state = {
+            "current": _route_state.get("current"),
+            "switches": _route_state.get("switches") or 0,
+            "last_switch": _route_state.get("last_switch"),
+        }
+        # Only families the router has an opinion about: a list of all 40-odd
+        # families would be noise, and the panel needs the condemned ones.
+        families = []
+        for fam_name in sorted(_route_state.get("families") or {}):
+            row = _family_row(fam_name, now)
+            if row["fail"] <= 0 and not row["cooling"]:
+                continue
+            row["name"] = fam_name
+            families.append(row)
+    families.sort(key=lambda r: (not r["cooling"], -r["recent"]))
+    return {
+        "ok": bool(pool.get("ok")),
+        "pool": {
+            "group": pool.get("group"),
+            "group_type": pool.get("group_type"),
+            "basis": pool.get("basis"),
+            "now": pool.get("now"),
+            "count": pool.get("count"),
+        },
+        "strategy": ROUTE["select"].get("strategy"),
+        "pin": ROUTE["select"].get("pin"),
+        "rotate_on": list(ROUTE.get("rotate_on") or []),
+        "threshold": ROUTE["select"].get("threshold"),
+        "cooldown_s": ROUTE["select"].get("cooldown_s"),
+        "family_threshold": ROUTE["select"].get("family_threshold"),
+        "family_cooldown_s": ROUTE["select"].get("family_cooldown_s"),
+        "strategies": sorted(STRATEGIES) + list(PASSIVE_STRATEGIES),
+        "state": state,
+        "state_path": ROUTE_STATE_PATH,
+        # The settings file lives beside the route ledger, and the panel needs
+        # both paths to say where the state survives a reboot.
+        "settings_path": SETTINGS_PATH,
+        "settings_schema": SETTINGS_SCHEMA,
+        "families": families,
+        "members": rows,
+    }
+
+
+def route_action(payload):
+    """Router side of POST /__route: pin, strategy, clear, switch."""
+    try:
+        data = json.loads(payload or b"{}")
+    except Exception:
+        return {"ok": False, "reason": "bad json"}
+    action = (data.get("action") or "").strip()
+
+    if action == "pin":
+        name = (data.get("name") or "").strip()
+        ROUTE["select"]["pin"] = name or None
+        save_settings("route:pin")
+        return {"ok": True, "action": action, "pin": ROUTE["select"]["pin"], "route": route_status()}
+
+    if action == "strategy":
+        value = (data.get("value") or "").strip().lower()
+        if value not in STRATEGIES and value not in PASSIVE_STRATEGIES:
+            return {"ok": False, "reason": "unknown strategy %r" % value,
+                    "known": sorted(STRATEGIES) + list(PASSIVE_STRATEGIES)}
+        ROUTE["select"]["strategy"] = value
+        _route_state["current"] = None
+        save_settings("route:strategy")
+        return {"ok": True, "action": action, "strategy": value, "route": route_status()}
+
+    if action == "set":
+        # The knobs the dashboard exposes. Clamped like /__control does, so a
+        # hand-edited request cannot put the router into a state the panel
+        # could never set.
+        select = ROUTE["select"]
+        changed = {}
+        for key, lo, hi in (
+            ("threshold", 1, 10),
+            ("cooldown_s", 5, 3600),
+            ("family_threshold", 2, 30),
+            ("family_cooldown_s", 60, 7200),
+            ("window_s", 60, 86400),
+        ):
+            if key in data:
+                try:
+                    value = max(lo, min(hi, int(data[key])))
+                except (TypeError, ValueError):
+                    continue
+                if value != select.get(key):
+                    select[key] = value
+                    changed[key] = value
+        if "decay_half_life_s" in data:
+            try:
+                value = max(60, min(86400, int(data["decay_half_life_s"])))
+                if value != select.get("decay_half_life_s"):
+                    select["decay_half_life_s"] = value
+                    changed["decay_half_life_s"] = value
+            except (TypeError, ValueError):
+                pass
+        if changed:
+            save_settings("route:set")
+        return {"ok": True, "action": action, "changed": changed, "route": route_status()}
+
+    if action in ("clear", "reset"):
+        with _route_lock:
+            _route_state["nodes"] = {}
+            _route_state["families"] = {}
+            _route_state["current"] = None
+            _route_state["switches"] = 0
+            _route_state["last_switch"] = None
+            _route_dirty[0] = True
+        _route_save(force=True)
+        return {"ok": True, "action": action, "route": route_status()}
+
+    if action in ("switch", "reset_current"):
+        name = (data.get("name") or "").strip()
+        if name:
+            with _route_lock:
+                _route_state["current"] = name
+                _entry(name)["cooldown_until"] = 0.0
+        else:
+            with _route_lock:
+                _route_state["current"] = None
+        _route_save(force=True)
+        route = apply_route(pick_route()) if name else None
+        return {"ok": True, "action": action, "applied": route, "route": route_status()}
+
+    return {"ok": False, "reason": "unknown action %r" % action,
+            "known": ["pin", "strategy", "set", "clear", "switch", "reset_current"]}
+
+
+def _route_save(force=False):
+    interval = max(1.0, float(ROUTE["persist"].get("fsync_s") or 30))
+    now = time.time()
+    with _route_lock:
+        if not force and not _route_dirty[0]:
+            return
+        if not force and now - _route_saved_at[0] < interval:
+            return
+        snapshot = json.loads(json.dumps(_route_state))
+        _route_dirty[0] = False
+        _route_saved_at[0] = now
+    tmp = ROUTE_STATE_PATH + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, ROUTE_STATE_PATH)
+    except OSError:
+        pass
+
+
+def _route_maybe_save():
+    _route_save(force=False)
+
+
+def _route_load():
+    try:
+        with open(ROUTE_STATE_PATH, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return
+    if not isinstance(raw, dict):
+        return
+    nodes = raw.get("nodes")
+    with _route_lock:
+        if isinstance(nodes, dict):
+            _route_state["nodes"] = {
+                k: v for k, v in nodes.items() if isinstance(v, dict)
+            }
+        for key in ("switches", "rr", "last_switch"):
+            if key in raw:
+                _route_state[key] = raw[key]
+        families = raw.get("families")
+        if isinstance(families, dict):
+            _route_state["families"] = {
+                k: v for k, v in families.items() if isinstance(v, dict)
+            }
+        _route_state["current"] = raw.get("current")
+        for entry in _route_state["nodes"].values():
+            _decay(entry)
+
+
+_route_load()
 
 
 def _rule_target(rules, host):
@@ -1396,6 +2168,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 force = (qs.get("refresh") or ["0"])[0] not in ("0", "false", "")
                 return self._send_json(discover_pool(force=force))
+            if path == "/__route":
+                if method == "POST":
+                    n = int(self.headers.get("Content-Length") or 0)
+                    return self._send_json(route_action(self.rfile.read(n) if n else b""))
+                return self._send_json(route_status())
             if path == "/__logs":
                 qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 return self._send_json(
@@ -1428,6 +2205,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "stats": "/__stats",
                     "net": "/__net",
                     "pool": "/__pool",
+                    "route": "/__route",
                     "logs": "/__logs",
                     "events": "/__events",
                     "health": "/__health",
@@ -1471,9 +2249,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         route_direct = False
 
         max_attempts = 1 if SETTINGS["paused"] else SETTINGS["attempts"]
-        route_direct = SETTINGS["force_route"] == "direct"
+        route = None
+        local_direct = False
         for attempt in range(max_attempts):
+            # One route decision per attempt: a failure that cools this member
+            # down has to be visible to the next attempt, which is the entire
+            # point of rotating.
+            route = route_for_attempt(force_direct=local_direct)
+            route_direct = route["direct"]
             bump("attempts")
+            t_attempt = time.time()
             try:
                 resp = self._open_upstream(method, target, hdrs, body, route_direct)
                 status = resp.status
@@ -1489,6 +2274,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         # then dropped. Nothing reached the client, so retry.
                         trail.append("EMPTY_STREAM")
                         detail.append({"n": attempt + 1, "cls": "EMPTY_STREAM", "status": 200})
+                        report_route(route, "EMPTY_STREAM", 200,
+                                     int((time.time() - t_attempt) * 1000))
                         try:
                             resp.close()
                         except Exception:
@@ -1499,6 +2286,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         break
                     trail.append("OK")
                     detail.append({"n": attempt + 1, "cls": "OK", "status": 200})
+                    report_route(route, "OK", 200,
+                                 int((time.time() - t_attempt) * 1000))
                     streamed = True
                     break
 
@@ -1506,6 +2295,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cls = classify(status, last_body)
                 trail.append(cls)
                 last_status = status
+                report_route(route, cls, status,
+                             int((time.time() - t_attempt) * 1000))
                 hint = retry_after_seconds(resp.headers.get("Retry-After"))
                 detail.append(
                     {
@@ -1536,6 +2327,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         last_body = b""
                 cls = classify(last_status, last_body)
                 trail.append(cls)
+                report_route(route, cls, last_status,
+                             int((time.time() - t_attempt) * 1000))
                 hint = retry_after_seconds(e.headers.get("Retry-After") if e.headers else None)
                 detail.append(
                     {
@@ -1557,9 +2350,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 )
                 last_status = None
                 last_body = b""
+                report_route(route, "ERR:" + type(e).__name__, None,
+                             int((time.time() - t_attempt) * 1000), err=str(e))
                 if not route_direct and _proxy_refused(e):
                     # mihomo is down or its port moved: stop paying for it.
                     route_direct = True
+                    local_direct = True
+                    report_route(route, "LOCAL_RELAY", None,
+                                 int((time.time() - t_attempt) * 1000))
                     trail.append("ROUTE:direct")
                     detail.append({"n": attempt + 1, "cls": "ROUTE:direct"})
                     time.sleep(backoff(attempt, "ERR"))
@@ -1602,6 +2400,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "body_len": len(body),
                 "model": _peek_model(body),
                 "route": "direct" if route_direct else "proxy",
+                # Which member carried it, and why it was chosen: without this
+                # a rotation is invisible in the log, which is how the last
+                # silent route change went unnoticed for a day.
+                "member": (route or {}).get("name"),
+                "via": (route or {}).get("via"),
                 # The last status is what the client got; the detail list is what
                 # the upstream said on the way there. Four attempts is enough to
                 # recognise a pattern without turning the log into a transcript.

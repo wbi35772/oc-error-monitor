@@ -37,3 +37,4 @@ __pycache__/
 # runtime state written beside the script (oc-error-monitor)
 settings.json
 settings.json.tmp
+route_state.json
