@@ -55,6 +55,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter, deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # pythonw.exe has no console: sys.stdout/sys.stderr are None there.
 for _s in (sys.stdout, sys.stderr):
@@ -407,13 +408,91 @@ def _mihomo_send(path, secret, method="PUT", payload=None, timeout=6.0):
     return json.loads(raw.decode("utf-8", "replace")) if raw.strip() else {}
 
 
-def net_probe(timeout_ms=5000):
+_PROBE_WORKERS = 16
+_probe_lock = threading.Lock()
+_probe_state = {
+    "running": False,
+    "group": None,
+    "timeout_ms": 5000,
+    "total": 0,
+    "done": 0,
+    "alive": 0,
+    "dead": 0,
+    "started_at": 0.0,
+    "finished_at": 0.0,
+    "nodes": {},
+}
+
+
+def _probe_run(names, timeout_ms):
+    """Measure every candidate on its own, and give every one a verdict.
+
+    mihomo's group delay endpoint answers only for the members that replied:
+    a node that times out is left out of the response instead of being
+    reported as a timeout. On this machine the same group answered 48, 52, 58,
+    60 and 62 entries across five runs, so "missing" and "dead" were
+    indistinguishable, and 160 broken candidates looked untested. Asking each
+    node separately is the only way to give every candidate a verdict.
+    """
+    secret = _clash_secret()
+    url = urllib.parse.quote("https://opencode.ai", safe="")
+
+    def one(name):
+        path = "/proxies/%s/delay?url=%s&timeout=%d" % (
+            urllib.parse.quote(name, safe=""), url, timeout_ms,
+        )
+        try:
+            raw = _mihomo(path, secret, timeout=(timeout_ms / 1000.0) + 15.0)
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8", "replace")[:120]
+            except Exception:
+                pass
+            return name, {
+                "delay": None,
+                "dead": True,
+                "error": "timeout" if exc.code == 504 else (detail or "HTTP %d" % exc.code),
+            }
+        except Exception as exc:
+            return name, {"delay": None, "dead": True,
+                          "error": "%s: %s" % (type(exc).__name__, exc)}
+        delay = raw.get("delay") if isinstance(raw, dict) else None
+        if not isinstance(delay, int):
+            return name, {"delay": None, "dead": True, "error": "no delay in response"}
+        # mihomo reports the timeout value itself when the probe failed.
+        return name, {"delay": delay, "dead": delay >= timeout_ms, "error": None}
+
+    with ThreadPoolExecutor(max_workers=_PROBE_WORKERS) as pool:
+        futures = {pool.submit(one, n): n for n in names}
+        for fut in as_completed(futures):
+            try:
+                name, row = fut.result()
+            except Exception as exc:
+                name = futures[fut]
+                row = {"delay": None, "dead": True, "error": str(exc)}
+            with _probe_lock:
+                _probe_state["nodes"][name] = row
+                _probe_state["done"] += 1
+                if row["dead"]:
+                    _probe_state["dead"] += 1
+                else:
+                    _probe_state["alive"] += 1
+    with _probe_lock:
+        _probe_state["running"] = False
+        _probe_state["finished_at"] = time.time()
+
+
+def net_probe(timeout_ms=5000, start=True):
     """Measure every candidate in the live group against the upstream itself.
 
     `/proxies` only carries whatever latency the client happened to record, and
-    for a node that is currently selected and slow that history lags badly. This
-    asks mihomo to test the whole group against opencode.ai right now, which is
-    the only number that answers "which line should this be using".
+    for a node that is currently selected and slow that history lags badly.
+    This asks mihomo to test each candidate against opencode.ai right now,
+    which is the only number that answers "which line should this be using".
+
+    A group this size takes tens of seconds to measure, so the run happens in
+    the background: start=True kicks it off, start=False reports progress.
     """
     try:
         timeout_ms = max(1000, min(int(timeout_ms), 15000))
@@ -423,41 +502,47 @@ def net_probe(timeout_ms=5000):
     group = snap.get("group")
     if not group:
         return {"ok": False, "reason": snap.get("reason") or "no group resolved",
-                "group": None, "nodes": []}
-    secret = _clash_secret()
-    query = "/group/%s/delay?url=%s&timeout=%d" % (
-        urllib.parse.quote(group, safe=""),
-        urllib.parse.quote("https://opencode.ai", safe=""),
-        timeout_ms,
-    )
-    try:
-        raw = _mihomo(query, secret, timeout=(timeout_ms / 1000.0) + 30.0)
-    except Exception as exc:
-        return {"ok": False, "group": group,
-                "reason": "%s: %s" % (type(exc).__name__, exc), "nodes": []}
+                "group": None, "running": False, "nodes": []}
 
-    current = snap.get("node")
+    members = snap.get("members") or []
+    # Only a leaf proxy can be measured on its own; a nested group and DIRECT
+    # answer 504 to a per-node delay test and would look broken.
+    leaves = [m["name"] for m in members
+              if m.get("type") not in GROUPS and m.get("type") != "Direct"]
+
+    with _probe_lock:
+        busy = _probe_state["running"] and _probe_state["group"] == group
+    if start and not busy:
+        with _probe_lock:
+            _probe_state.update({
+                "running": True, "group": group, "timeout_ms": timeout_ms,
+                "total": len(leaves), "done": 0, "alive": 0, "dead": 0,
+                "started_at": time.time(), "finished_at": 0.0, "nodes": {},
+            })
+        threading.Thread(target=_probe_run, args=(leaves, timeout_ms), daemon=True).start()
+
+    with _probe_lock:
+        st = dict(_probe_state)
+        measured = dict(_probe_state["nodes"])
     rows = []
-    for name, delay in (raw or {}).items():
-        if not isinstance(delay, int):
-            continue
+    for name, row in measured.items():
         rows.append({
             "name": name,
-            # mihomo reports the timeout value itself when the probe failed.
-            "delay": delay,
-            "dead": delay >= timeout_ms,
-            "current": name == current,
+            "delay": row.get("delay"),
+            "dead": bool(row.get("dead")),
+            "error": row.get("error"),
+            "current": name == snap.get("node"),
         })
-    rows.sort(key=lambda r: (r["dead"], r["delay"]))
-    return {
+    rows.sort(key=lambda r: (r["dead"], r["delay"] if r["delay"] is not None else 10 ** 9))
+    st.update({
         "ok": True,
         "group": group,
-        "node": current,
-        "timeout_ms": timeout_ms,
-        "tested": len(rows),
-        "dead": sum(1 for r in rows if r["dead"]),
+        "node": snap.get("node"),
+        "tested": st.get("done"),
+        "candidates": len(members),
         "nodes": rows,
-    }
+    })
+    return st
 
 
 def net_switch(payload, group=None):
@@ -495,6 +580,21 @@ def net_switch(payload, group=None):
 
 
 GROUPS = ("Selector", "URLTest", "Fallback", "Relay", "LoadBalance")
+
+
+def _node_family(name):
+    """The family a node name belongs to: 优选域名 / 多线 / 电信 / 移动 / 联通.
+
+    The subscriber's own Clash script sorts on a "preferred" regex
+    (家宽/住宅/ISP/原生/...) that matches nothing in this subscription, so the
+    name family is the only signal left that separates a Cloudflare-fronted
+    优选域名 node from a plain carrier 电信 node. Everything before the
+    trailing -NN is the family.
+    """
+    base = re.sub(r"-\d+$", "", name or "").strip()
+    # Drop leading emoji and other decoration, keep the readable label.
+    base = re.sub(r"^[^\w\u4e00-\u9fff]+", "", base).strip()
+    return base or (name or "")
 
 
 def _resolve_chain(proxies, name, limit=8):
@@ -637,20 +737,33 @@ def net_snapshot():
     # The same classification the Clash Verge extension script uses to put
     # residential and preferred nodes first: a node called 家宽 / 住宅 / 原生 is
     # not the same bet as one called 多线-10, and the subscriber cannot tell
-    # them apart from the name alone.
+    # them apart from the name alone. On this subscription that regex matches
+    # nothing, so the name family is carried as well: 优选域名 / 多线 / 电信 are
+    # different bets even when the script calls them all "other".
     preferred_re = re.compile(r"家宽|住宅|ISP|原生|WARP|MASQUE|Plus|US|美国|SG|新加坡|JP|日本", re.I)
+    with _probe_lock:
+        measured = dict(_probe_state["nodes"])
     members = []
-    for name in (group_obj.get("all") or [])[:80]:
+    for name in (group_obj.get("all") or []):
         obj = proxies.get(name)
         if not isinstance(obj, dict):
             continue
         h = obj.get("history") or []
+        pr = measured.get(name)
         members.append(
             {
                 "name": name,
                 "type": obj.get("type"),
                 "delay": h[-1].get("delay") if h else None,
                 "preferred": bool(preferred_re.search(name)),
+                "family": _node_family(name),
+                "measured": bool(pr),
+                "measured_delay": (pr or {}).get("delay"),
+                "dead": bool((pr or {}).get("dead")),
+                # A nested group and DIRECT cannot be delay tested on their own:
+                # mihomo answers 504 for both. Saying so beats leaving them
+                # looking like nodes that were never tried.
+                "probeable": obj.get("type") not in GROUPS and obj.get("type") != "Direct",
             }
         )
 
@@ -665,6 +778,7 @@ def net_snapshot():
         node=node,
         node_type=node_obj.get("type"),
         node_preferred=bool(preferred_re.search(node or "")),
+        node_family=_node_family(node or ""),
         chain=chain,
         candidates=len(group_obj.get("all") or []),
         delay_ms=history[-1].get("delay") if history else None,
@@ -948,7 +1062,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send_json(net_snapshot())
             if path == "/__net/probe":
                 qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-                return self._send_json(net_probe((qs.get("timeout") or ["5000"])[0]))
+                # start=1 kicks a run off; without it this only reports progress,
+                # so a polling client never restarts the run it is watching.
+                start = (qs.get("start") or ["0"])[0] not in ("0", "false", "")
+                return self._send_json(
+                    net_probe((qs.get("timeout") or ["5000"])[0], start=start)
+                )
             if path == "/__net/switch":
                 n = int(self.headers.get("Content-Length") or 0)
                 return self._send_json(net_switch(self.rfile.read(n) if n else b""))

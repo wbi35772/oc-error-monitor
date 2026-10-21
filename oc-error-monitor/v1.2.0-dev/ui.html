@@ -193,13 +193,18 @@
 
       <section class="card net-members">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
-          <h2 style="margin:0">策略组候选（优选在前）</h2>
+          <h2 style="margin:0">策略组候选</h2>
           <button id="probeBtn">测速全部候选</button>
         </div>
         <div class="meta" id="probeInfo" style="margin-bottom:6px"></div>
+        <div class="btnrow" style="margin:0 0 8px">
+          <button class="on" data-net="all">全部</button>
+          <button data-net="alive">只显示可用</button>
+          <span class="meta" id="netCount"></span>
+        </div>
         <div class="scroll"><table>
-          <thead><tr><th>节点</th><th>类型</th><th>延迟</th><th>性质</th><th>操作</th></tr></thead>
-          <tbody id="net-rows"><tr><td colspan="5" class="meta">–</td></tr></tbody>
+          <thead><tr><th>节点</th><th>线路</th><th>类型</th><th>延迟</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="net-rows"><tr><td colspan="6" class="meta">–</td></tr></tbody>
         </table></div>
       </section>
 
@@ -299,6 +304,7 @@ const store = {
   logCls: "",
   logQ: "",
   probe: null,
+  netFilter: "all",
   view: "overview",
 };
 const $ = (id) => document.getElementById(id);
@@ -396,7 +402,7 @@ function renderNet(n){
   $('net-delay').innerHTML = delayCell(n.delay_ms);
   $('net-kind').innerHTML = n.node_preferred
     ? '<span style="color:var(--ok)">优选（家宽/住宅/原生类）</span>'
-    : '<span style="color:var(--warn)">普通中转节点，非住宅类</span>';
+    : '<span style="color:var(--warn)">线路 ' + esc(n.node_family || '–') + ' · 订阅中转，非住宅类</span>';
   $('net-basis').textContent = (n.basis || '–') +
     (n.rule && n.rule !== n.basis ? ' · ' + n.rule : '');
   $('net-group').textContent = (n.group||'–') + ' / ' + (n.candidates||0) + ' 个候选';
@@ -412,34 +418,57 @@ function renderNet(n){
   ).join('') : '<span class="meta">暂无活动连接（代理空闲时正常）</span>';
 
   const probe = store.probe;
-  const pMap = probe && probe.ok
+  const pMap = probe && probe.ok && probe.nodes
     ? Object.fromEntries((probe.nodes || []).map(x => [x.name, x]))
     : null;
   const members = (n.members || []).map(m => {
-    const p = pMap && pMap[m.name];
+    const p = pMap ? pMap[m.name] : null;
+    // The snapshot carries the last probe result per member, so a page reload
+    // keeps the measurements. A live probe report is fresher, so it wins.
+    const measured = p ? true : !!m.measured;
+    const delay = p ? p.delay : (measured ? m.measured_delay : null);
     return Object.assign({}, m, {
-      pdelay: p ? p.delay : null,
-      dead: p ? !!p.dead : false,
-      measured: !!p,
+      pdelay: measured ? delay : null,
+      dead: p ? !!p.dead : !!m.dead,
+      measured: measured,
     });
   }).sort((a, b) => {
-    if (a.dead !== b.dead) return a.dead ? 1 : -1;
+    // Measured and alive first, then untested, then dead. Within a band the
+    // subscriber's own script wins: a residential node is a different bet
+    // from a plain carrier node, even when it is slower.
+    const rank = (x) => (x.dead ? 2 : (x.measured ? 0 : 1));
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
     if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
-    const pick = (x) => x.pdelay != null ? x.pdelay : (x.delay == null || x.delay === 0 ? 1e9 : x.delay);
+    const pick = (x) => x.pdelay != null ? x.pdelay
+      : (x.delay == null || x.delay === 0 ? 1e9 : x.delay);
     return pick(a) - pick(b);
   });
-  $('net-rows').innerHTML = members.length ? members.map(m => {
-    const cell = m.dead
-      ? '<span style="color:var(--err)">超时</span>'
-      : delayCell(m.pdelay != null ? m.pdelay : m.delay);
+  const alive = members.filter(m => m.measured && !m.dead).length;
+  const dead = members.filter(m => m.dead).length;
+  const shown = store.netFilter === 'alive'
+    ? members.filter(m => m.measured && !m.dead)
+    : members;
+  $('netCount').textContent = members.length
+    ? members.length + ' 个候选 · 可用 ' + alive + ' · 超时 ' + dead
+    : '';
+  $('net-rows').innerHTML = shown.length ? shown.map(m => {
+    const cell = m.measured
+      ? (m.dead ? '<span style="color:var(--err)">超时</span>' : delayCell(m.pdelay))
+      : (m.probeable === false
+        ? '<span class="meta">不可测</span>'
+        : (m.delay ? '<span class="meta">' + m.delay + 'ms*</span>' : '<span class="meta">–</span>'));
+    const st = m.name === n.node ? '<span style="color:var(--ok)">当前</span>'
+      : (m.dead ? '<span style="color:var(--err)">超时</span>'
+        : (m.measured ? '<span style="color:var(--ok)">可用</span>'
+          : '<span class="meta">未测</span>'));
     const act = m.name === n.node
-      ? '<span class="meta">当前</span>'
+      ? '<span class="meta">–</span>'
       : '<button class="mini" data-sw="' + esc(m.name) + '">切换</button>';
     return '<tr><td title="' + esc(m.name) + '">' + esc(m.name) + '</td>' +
+      '<td><span class="meta">' + esc(m.family || '') + '</span></td>' +
       '<td>' + esc(m.type || '') + '</td><td>' + cell + '</td>' +
-      '<td>' + (m.preferred ? '<span style="color:var(--ok)">优选</span>' : '<span class="meta">普通</span>') + '</td>' +
-      '<td>' + act + '</td></tr>';
-  }).join('') : '<tr><td colspan="5" class="meta">–</td></tr>';
+      '<td>' + st + '</td><td>' + act + '</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="meta">没有匹配的候选</td></tr>';
   $('net-rows').querySelectorAll('button[data-sw]').forEach(b => {
     b.onclick = () => switchNode(b.dataset.sw, b);
   });
@@ -633,6 +662,13 @@ let qTimer=null;
 $('logQ').oninput = ()=>{ clearTimeout(qTimer); qTimer=setTimeout(()=>{ store.logQ=$('logQ').value.trim(); loadLogs(); }, 350); };
 $('logReload').onclick = ()=> loadLogs();
 $('probeBtn').onclick = ()=> probeNodes();
+document.querySelectorAll('#v-network button[data-net]').forEach(b=>{
+  b.onclick = ()=>{
+    store.netFilter = b.dataset.net || 'all';
+    document.querySelectorAll('#v-network button[data-net]').forEach(x=>x.classList.toggle('on', x===b));
+    if(store.net) renderNet(store.net);
+  };
+});
 
 /* ------------------------------ polling --------------------------------- */
 async function load(){
@@ -650,22 +686,56 @@ async function loadNet(){
 async function probeNodes(){
   const btn = $('probeBtn');
   btn.disabled = true; btn.textContent = '测速中…';
-  $('probeInfo').textContent = '正在对 opencode.ai 逐个探测，最多约 30 秒…';
+  $('probeInfo').textContent = '正在对 opencode.ai 逐个探测…';
   try{
-    const j = await api('/__net/probe?timeout=5000');
+    // The run happens on the server: 216 candidates cannot be measured inside
+    // one browser request without the page timing out first.
+    const j = await api('/__net/probe?timeout=5000&start=1');
     if(!j.ok) throw new Error(j.reason || 'failed');
     store.probe = j;
-    const alive = (j.nodes || []).filter(x => !x.dead);
-    const best = alive[0];
-    $('probeInfo').innerHTML = '实测 ' + j.tested + ' 个 · 超时 ' + j.dead + ' 个' +
-      (best ? ' · 最快 <b>' + esc(best.name) + '</b> ' + best.delay + 'ms' : '') +
-      (j.node && j.nodes.some(x => x.current && x.dead) ? ' · <span style="color:var(--err)">当前节点已超时</span>' : '');
     if(store.net) renderNet(store.net);
+    if(j.running){
+      $('probeInfo').textContent = '测速中 0/' + (j.total||0) + '…';
+      pollProbe(btn);
+    }else{
+      finishProbe(btn, j);
+    }
   }catch(e){
     $('probeInfo').textContent = '测速失败：' + e.message;
-  }finally{
     btn.disabled = false; btn.textContent = '测速全部候选';
   }
+}
+
+function pollProbe(btn){
+  setTimeout(async ()=>{
+    try{
+      const j = await api('/__net/probe?start=0');
+      store.probe = j;
+      if(store.net) renderNet(store.net);
+      if(j.running){
+        $('probeInfo').textContent = '测速中 ' + (j.done||0) + '/' + (j.total||0) +
+          ' · 可用 ' + (j.alive||0) + ' · 超时 ' + (j.dead||0);
+        pollProbe(btn);
+      }else{
+        finishProbe(btn, j);
+      }
+    }catch(e){
+      $('probeInfo').textContent = '测速失败：' + e.message;
+      btn.disabled = false; btn.textContent = '测速全部候选';
+    }
+  }, 1000);
+}
+
+function finishProbe(btn, j){
+  const alive = (j.nodes || []).filter(x => !x.dead);
+  const best = alive[0];
+  $('probeInfo').innerHTML = '实测 ' + (j.tested||0) + ' 个 · 可用 ' + (j.alive||0) +
+    ' · 超时 ' + (j.dead||0) +
+    (best ? ' · 最快 <b>' + esc(best.name) + '</b> ' + best.delay + 'ms' : '') +
+    (j.node && (j.nodes||[]).some(x => x.current && x.dead)
+      ? ' · <span style="color:var(--err)">当前节点已超时</span>' : '');
+  btn.disabled = false; btn.textContent = '测速全部候选';
+  if(store.net) renderNet(store.net);
 }
 
 async function switchNode(name, btn){
