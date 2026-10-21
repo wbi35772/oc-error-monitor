@@ -47,7 +47,7 @@ LLM_API_KEY=sk-upX1ZDkrORvWcQjdnB8h2CdrjLIPcsqqHqOl7titUUE7p5o0
 **唯一合法的办法：让真 CLI 去发请求。** 所以有 `cli_llm_server.py`：
 
 ```
-第三方工具  →  http://127.0.0.1:8790/v1/chat/completions  →  opencode run  →  免费层
+第三方工具  →  http://127.0.0.1:8890/v1/chat/completions  →  opencode run  →  免费层
               （OpenAI 兼容）                                （真客户端，满足身份闸）
 ```
 
@@ -86,7 +86,7 @@ LLM_API_KEY=sk-upX1ZDkrORvWcQjdnB8h2CdrjLIPcsqqHqOl7titUUE7p5o0
 ## 四、怎么跑
 
 ```powershell
-# 隔离基线：独立端口 8791、独立 scratch、跑前跑后各快照一次
+# 隔离基线：独立端口 8891、独立 scratch、跑前跑后各快照一次
 cd oc-error-monitor\v1.0.0\testenv\docs_baseline
 powershell -ExecutionPolicy Bypass -File .\run_readmex_test.ps1
 ```

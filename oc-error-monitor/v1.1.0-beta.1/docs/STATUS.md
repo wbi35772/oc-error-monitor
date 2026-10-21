@@ -103,7 +103,7 @@ direct run3 -> 'ok'     direct run4 -> 'ok'
 |---|---|
 | `oc-error-monitor/v1.0.0/cli_llm_server.py` | OpenAI 兼容端点，后端是**真 OpenCode CLI**，让第三方工具合法用上免费层（提示词走 stdin，避免 Windows 命令行长度上限） |
 | `testenv/docs_baseline/snapshot_state.py` | 状态快照 + 差异判定，用来**证明**实验没有影响在跑的版本 |
-| `testenv/docs_baseline/run_readmex_test.ps1` | 隔离跑 readmeX：独立端口 8791、独立 scratch、只走环境变量配置、跑前跑后各快照一次 |
+| `testenv/docs_baseline/run_readmex_test.ps1` | 隔离跑 readmeX：独立端口 8891、独立 scratch、只走环境变量配置、跑前跑后各快照一次 |
 | `testenv/docs_baseline/flow_demo.html` | 零依赖流场动画文档页（canvas 流场 + 渐变位移 + 数据流带） |
 
 工作区：`D:\Project\Openchamber\opencode-network-docs`（`git worktree` 独立检出，
@@ -121,7 +121,7 @@ master 那份一个字没动）。
 ## 9. readmeX 实跑结果（本分支已验证）
 
 命令：`powershell -File testenv/docs_baseline/run_readmex_test.ps1`
-（模型 `opencode/deepseek-v4.1-flash-free`，走 shim `127.0.0.1:8791`，不碰 8788）
+（模型 `opencode/deepseek-v4.1-flash-free`，走 shim `127.0.0.1:8891`，不碰 8788）
 
 | 项 | 值 |
 |---|---|

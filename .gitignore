@@ -24,3 +24,8 @@
 __pycache__/
 *.py[cod]
 
+# Docs tooling baseline: scratch copies and per-run snapshots are local.
+# baseline.json IS tracked: it is the reference the drift check compares to.
+/oc-error-monitor/v1.1.0-beta.1/testenv/docs_baseline/scratch/
+/oc-error-monitor/v1.1.0-beta.1/testenv/docs_baseline/before.json
+/oc-error-monitor/v1.1.0-beta.1/testenv/docs_baseline/after.json
