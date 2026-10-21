@@ -115,3 +115,24 @@ powershell -ExecutionPolicy Bypass -File .\run_readmex_test.ps1
 
 本目录是 v1.0.0 的**超集**：v1.0.0 的全部工具在这里都有，另外多了 CLI 端点与文档基线。
 把 v1.0.0 的修复合并进来即可保持同步，反之不要——v1.0.0 是线上版本，只接受已验证的改动。
+
+## 图示（Whimsical）
+
+- 链路拓扑 + 指纹闸对照：https://whimsical.com/9p4xba3BkZGnjpFnkc48QN
+  - 上：客户端 → retry_proxy 8788/8899 → 错误判定（身份闸 / IP 信誉 / 429 / 断流）→ mihomo :7899 或直连 → 免费层
+  - 下：裸 HTTP 请求被判身份闸（403，永不重试） vs 真 CLI 请求放行；第三方工具经 cli_llm_server 转成 CLI 请求
+
+## 参数速查
+
+| 参数 | 值 | 位置 |
+|---|---|---|
+| 生产端口 | 8788（候选 8788,8903,8904,8905） | `RETRY_PROXY_PORTS` |
+| 测试端口 | 8899（候选 8899,8900,8901,8902） | 同上 |
+| 上游 | https://opencode.ai/inference/openai/v1 | `RETRY_PROXY_UPSTREAM` |
+| 出口代理 | http://127.0.0.1:7899（mihomo mixed，可关） | `RETRY_PROXY_UPSTREAM_PROXY` |
+| IP 信誉退避 | 0.4 / 1.0 / 1.8 / 3.0 / 4.5 s | `BACKOFF` |
+| 429 退避 | 2 / 5 / 9 / 15 / 25 s | `RATE_BACKOFF` |
+| 身份闸 | 永不重试，记 `IDENTITY` | `classify` |
+| 断流 | 只记 `truncated_streams`，不重放 | — |
+| 停机标记 | `stopped.by-user`（存在则看门狗不拉起） | 运行时目录 |
+| shim 端口 | 8890（beta）/ 8790（默认） | `cli_llm_server.py` |
