@@ -14,6 +14,18 @@ set "PORT=8899"
 set "RUNDIR=%USERPROFILE%\.config\opencode\oc-error-monitor-v1.1.0-beta.1"
 
 if not exist "%RUNDIR%" mkdir "%RUNDIR%" 2>nul
+rem --force is the explicit start: it clears a user stop. The minute task
+rem calls this script without arguments and therefore respects the marker.
+if /i "%~1"=="--force" (
+    if exist "%RUNDIR%\stopped.by-user" del /q "%RUNDIR%\stopped.by-user" >nul 2>&1
+)
+if exist "%RUNDIR%\stopped.by-user" (
+    echo  [stop] user stopped this instance; run with --force to restart
+    exit /b 0
+)
+rem The peer lookup needs the repository root, which the runtime copy cannot
+rem infer from its own location.
+for %%I in ("%~dp0..\..") do > "%RUNDIR%\repo-path.txt" echo %%~fI
 copy /y "%~dp0retry_proxy.py" "%RUNDIR%\retry_proxy.py" >nul 2>&1
 copy /y "%~dp0supervisor.py" "%RUNDIR%\supervisor.py" >nul 2>&1
 copy /y "%~dp0ui.html" "%RUNDIR%\ui.html" >nul 2>&1

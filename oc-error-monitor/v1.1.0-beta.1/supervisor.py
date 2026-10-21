@@ -23,6 +23,8 @@ import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Set by a user stop; while it exists the supervisor must not spawn anything.
+STOP_MARKER = os.path.join(HERE, "stopped.by-user")
 PROXY = os.path.join(HERE, "retry_proxy.py")
 WIRE = os.path.join(HERE, "wire_retry_proxy.py")
 ACTIVE_PORT_FILE = os.path.join(HERE, "active-port.txt")
@@ -122,6 +124,9 @@ def main():
     respawns = []
     wired_port = None
     while True:
+        if os.path.exists(STOP_MARKER):
+            log("stopped.by-user present: user stopped this instance, exiting")
+            return 0
         port = active_port()
         if healthy(port):
             if port != wired_port:
@@ -132,6 +137,9 @@ def main():
             time.sleep(POLL_SEC)
             continue
 
+        if os.path.exists(STOP_MARKER):
+            log("stopped.by-user present: not spawning")
+            return 0
         try:
             proc = subprocess.Popen([sys.executable, PROXY], cwd=HERE)
         except Exception as e:

@@ -117,6 +117,19 @@ VERSION = _read_version()
 LOG_PATH = os.path.join(HERE, "retry_proxy.log.jsonl")
 ACTIVE_PORT_FILE = os.path.join(HERE, "active-port.txt")
 HANDOVER_FILE = os.path.join(HERE, "handover-request.json")
+# A user stop has to outlive the watchdog: the marker is written here and
+# both the proxy and the supervisor refuse to run while it exists. Only an
+# explicit start (the other instance, or switch-instance.bat) removes it.
+STOP_MARKER = os.path.join(HERE, "stopped.by-user")
+# Repo root, written by start-retry-proxy.bat when it stages this copy.
+REPO_FILE = os.path.join(HERE, "repo-path.txt")
+PEER_PORTS = [
+    int(x)
+    for x in os.environ.get(
+        "RETRY_PROXY_PEER_PORTS", "8788,8899,8900,8901,8902"
+    ).split(",")
+    if x.strip().isdigit()
+]
 LOCK_PATH = os.path.join(HERE, f"retry_proxy-{PORT}.lock")
 
 # "finish_reason":null is not a finish; only a non-null value ends the stream.
@@ -179,6 +192,143 @@ _log_writes = 0
 # Requests currently in flight. A handover drains this counter before the old
 # instance exits, so a running stream is never cut in half.
 _active = 0
+
+
+def _mark_stopped(by="dashboard"):
+    """Leave a marker the watchdog honours, so a stop stays stopped."""
+    try:
+        with open(STOP_MARKER, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "by": by,
+                    "pid": os.getpid(),
+                    "port": PORT,
+                    "version": VERSION,
+                },
+                f,
+            )
+    except OSError:
+        pass
+
+
+def _repo_root():
+    # cmd's echo writes in the console code page, not UTF-8, and the path can
+    # hold non-ASCII: read bytes and try the encodings that actually occur.
+    try:
+        with open(REPO_FILE, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    p = ""
+    for enc in ("utf-8-sig", "gbk", "mbcs"):
+        try:
+            p = raw.decode(enc).strip()
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return p if p and os.path.isdir(p) else None
+
+
+def _probe_peer():
+    """The other build answers on a different port and reports a different
+    version, so the peer is whoever answers there. Probing beats asking the
+    user which port the other instance happened to take."""
+    for port in PEER_PORTS:
+        if port == PORT:
+            continue
+        try:
+            with urllib.request.urlopen(
+                "http://127.0.0.1:%d/__health" % port, timeout=0.4
+            ) as r:
+                h = json.loads(r.read().decode("utf-8"))
+        except Exception:
+            continue
+        if h.get("ok") and h.get("version") != VERSION:
+            return {
+                "port": port,
+                "version": h.get("version"),
+                "pid": h.get("pid"),
+                "paused": h.get("paused"),
+                "uptime_s": h.get("uptime_s"),
+            }
+    return None
+
+
+def _peer_dirs():
+    repo = _repo_root()
+    if not repo:
+        return []
+    base = os.path.join(repo, "oc-error-monitor")
+    out = []
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return []
+    for name in names:
+        d = os.path.join(base, name)
+        bat = os.path.join(d, "start-retry-proxy.bat")
+        if not os.path.isfile(bat):
+            continue
+        try:
+            with open(os.path.join(d, "VERSION"), "r", encoding="utf-8") as f:
+                ver = f.read().strip()
+        except OSError:
+            ver = "?"
+        out.append({"version": ver, "dir": d, "bat": bat})
+    return out
+
+
+def _start_peer():
+    dirs = [d for d in _peer_dirs() if d["version"] != VERSION]
+    if not dirs:
+        return {"ok": False, "error": "no peer build under oc-error-monitor/"}
+    peer = dirs[0]
+    rundir = os.path.join(
+        os.path.expanduser("~"), ".config", "opencode", "oc-error-monitor-v" + peer["version"]
+    )
+    marker = os.path.join(rundir, "stopped.by-user")
+    cleared = False
+    if os.path.exists(marker):
+        try:
+            os.remove(marker)
+            cleared = True
+        except OSError:
+            pass
+    subprocess.Popen(
+        ["cmd", "/c", peer["bat"]],
+        cwd=peer["dir"],
+        creationflags=0x00000008,
+        close_fds=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return {
+        "ok": True,
+        "action": "start_peer",
+        "version": peer["version"],
+        "script": peer["bat"],
+        "cleared_marker": cleared,
+    }
+
+
+def _stop_peer():
+    p = _probe_peer()
+    if not p:
+        return {"ok": False, "error": "peer is not answering"}
+    req = urllib.request.Request(
+        "http://127.0.0.1:%d/__control" % p["port"],
+        data=json.dumps({"action": "stop", "user": True}).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return {"ok": True, "peer": p, "reply": json.loads(r.read().decode("utf-8"))}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 
 # Live feed for the dashboard: the last 400 records plus one queue per open
 # /__events stream. Bounded so a forgotten tab cannot grow memory.
@@ -393,6 +543,47 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": True, "action": "shutdown"})
             threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
             return
+        elif action == "stop":
+            # A plain shutdown gets revived by the supervisor; a stop leaves a
+            # marker, so both the proxy and the supervisor exit and stay out.
+            _mark_stopped(str(data.get("by") or "dashboard"))
+            self._send_json(
+                {
+                    "ok": True,
+                    "action": "stop",
+                    "pid": os.getpid(),
+                    "marker": STOP_MARKER,
+                    "note": "start it from the other instance or switch-instance.bat",
+                }
+            )
+            threading.Thread(
+                target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True
+            ).start()
+            return
+        elif action == "start_peer":
+            res = _start_peer()
+            return self._send_json(res, 200 if res.get("ok") else 400)
+        elif action == "stop_peer":
+            res = _stop_peer()
+            return self._send_json(res, 200 if res.get("ok") else 400)
+        elif action == "switch":
+            started = _start_peer()
+            if not started.get("ok"):
+                return self._send_json(started, 400)
+
+            def _finish_switch():
+                # Never take this instance down before the peer is proven
+                # healthy, or a switch leaves the client with nothing.
+                for _ in range(50):
+                    time.sleep(0.5)
+                    if _probe_peer():
+                        _mark_stopped("switch")
+                        os._exit(0)
+                # Peer never answered: stay up rather than leave a hole.
+
+            self._send_json({"ok": True, "action": "switch", "peer": started})
+            threading.Thread(target=_finish_switch, daemon=True).start()
+            return
         else:
             return self._send_json({"ok": False, "error": "unknown action " + action}, 400)
         return self._send_json({"ok": True, "action": action, "settings": dict(SETTINGS)})
@@ -451,6 +642,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "upstream": UPSTREAM,
                     "paused": SETTINGS["paused"],
                 })
+            if path == "/__peer":
+                return self._send_json(
+                    {
+                        "ok": True,
+                        "me": {"version": VERSION, "port": PORT, "pid": os.getpid()},
+                        "peer": _probe_peer(),
+                        "stopped_marker": os.path.exists(STOP_MARKER),
+                        "peers": [{"version": d["version"], "dir": d["dir"]} for d in _peer_dirs()],
+                        "repo": _repo_root(),
+                    }
+                )
             if path == "/__control":
                 n = int(self.headers.get("Content-Length") or 0)
                 return self._control(self.rfile.read(n) if n else b"")
