@@ -1,4 +1,4 @@
-﻿# Restart the retry proxy.
+# Restart the retry proxy.
 #
 # Default: stop the old process, start the new one, report the measured gap.
 # -Handover: start the new instance *first* (Windows SO_REUSEADDR lets both
@@ -14,7 +14,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$rundir = Join-Path $env:USERPROFILE '.config\opencode\oc-error-monitor-v1.0.0'
+$ver = (Get-Content (Join-Path $here 'VERSION') -Raw -ErrorAction SilentlyContinue)
+if ($ver) { $ver = $ver.Trim() } else { $ver = 'unknown' }
+$rundir = Join-Path $env:USERPROFILE ('.config\opencode\oc-error-monitor-v' + $ver)
 $dst = Join-Path $rundir 'retry_proxy.py'
 $ui = Join-Path $rundir 'ui.html'
 $pyw = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\pythonw.exe'
@@ -27,7 +29,7 @@ if ($Port -le 0) {
         $txt = ([System.IO.File]::ReadAllText($activeFile)).Trim()
         if ($txt -match '^\d+$') { $Port = [int]$txt }
     }
-    if ($Port -le 0) { $Port = 8787 }
+    if ($Port -le 0) { $Port = 8788 }
 }
 
 if (-not (Test-Path $pyw)) {

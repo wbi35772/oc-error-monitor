@@ -4,7 +4,8 @@ rem The proxy itself is idempotent (health check + single-instance guard), so th
 rem watchdog only has to call the same start script. Uninstall: uninstall-watchdog.bat
 setlocal
 set "TASK=OpenCode Retry Proxy"
-set "RUNDIR=%USERPROFILE%\.config\opencode\oc-error-monitor-v1.0.0"
+for /f "usebackq delims=" %%v in ("%~dp0VERSION") do set "VER=%%v"
+set "RUNDIR=%USERPROFILE%\.config\opencode\oc-error-monitor-v%VER%"
 
 if not exist "%RUNDIR%" mkdir "%RUNDIR%" 2>nul
 copy /y "%~dp0retry_proxy.py" "%RUNDIR%\retry_proxy.py" >nul 2>&1
@@ -12,6 +13,10 @@ copy /y "%~dp0supervisor.py" "%RUNDIR%\supervisor.py" >nul 2>&1
 copy /y "%~dp0start-retry-proxy.bat" "%RUNDIR%\start-retry-proxy.bat" >nul 2>&1
 copy /y "%~dp0VERSION" "%RUNDIR%\VERSION" >nul 2>&1
 copy /y "%~dp0restart-retry-proxy.ps1" "%RUNDIR%\restart-retry-proxy.ps1" >nul 2>&1
+copy /y "%~dp0ui.html" "%RUNDIR%\ui.html" >nul 2>&1
+copy /y "%~dp0switch-instance.ps1" "%RUNDIR%\switch-instance.ps1" >nul 2>&1
+copy /y "%~dp0switch-instance.bat" "%RUNDIR%\switch-instance.bat" >nul 2>&1
+if exist "%~dp0..\..\oc-error-monitor" for %%I in ("%~dp0..\..") do > "%RUNDIR%\repo-path.txt" echo %%~fI
 if not exist "%RUNDIR%\retry_proxy.py" (
     echo  [!!] cannot stage files into "%RUNDIR%"
     exit /b 1

@@ -10,10 +10,23 @@ rem A healthy port is NOT a reason to skip the supervisor: a zero-downtime
 rem handover leaves the new proxy unmanaged, and supervisor.py has its own lock
 rem so calling it again is free.
 setlocal
-set "PORT=8787"
-set "RUNDIR=%USERPROFILE%\.config\opencode\oc-error-monitor-v1.0.0"
+set "PORT=8788"
+for /f "usebackq delims=" %%v in ("%~dp0VERSION") do set "VER=%%v"
+set "RUNDIR=%USERPROFILE%\.config\opencode\oc-error-monitor-v%VER%"
 
 if not exist "%RUNDIR%" mkdir "%RUNDIR%" 2>nul
+rem --force is the explicit start: it clears a user stop. The minute task
+rem calls this script without arguments and therefore respects the marker.
+if /i "%~1"=="--force" (
+    if exist "%RUNDIR%\stopped.by-user" del /q "%RUNDIR%\stopped.by-user" >nul 2>&1
+)
+if exist "%RUNDIR%\stopped.by-user" (
+    echo  [stop] user stopped this instance; run with --force to restart
+    exit /b 0
+)
+rem The peer lookup needs the repository root, which the runtime copy cannot
+rem infer from its own location.
+if exist "%~dp0..\..\oc-error-monitor" for %%I in ("%~dp0..\..") do > "%RUNDIR%\repo-path.txt" echo %%~fI
 copy /y "%~dp0retry_proxy.py" "%RUNDIR%\retry_proxy.py" >nul 2>&1
 copy /y "%~dp0supervisor.py" "%RUNDIR%\supervisor.py" >nul 2>&1
 copy /y "%~dp0ui.html" "%RUNDIR%\ui.html" >nul 2>&1
@@ -43,14 +56,14 @@ if errorlevel 1 goto start
 echo  [ok] retry proxy already up: http://127.0.0.1:%PORT%/__ui
 rem Make sure somebody is watching it. The supervisor's lock makes this a no-op
 rem when one is already alive.
-start "" "%PYW%" "%RUNDIR%\supervisor.py" > "%RUNDIR%\supervisor.out.log" 2>&1
+start "" cmd /c ""%PYW%" "%RUNDIR%\supervisor.py" > "%RUNDIR%\supervisor.out.log" 2>&1"
 exit /b 0
 
 :start
 echo  [..] starting retry proxy supervisor on 127.0.0.1:%PORT%
 rem The child must not keep the caller's stdout pipe open, or a parent that
 rem pipes this script's output waits forever for the pipe to close.
-start "" "%PYW%" "%RUNDIR%\supervisor.py" > "%RUNDIR%\supervisor.out.log" 2>&1
+start "" cmd /c ""%PYW%" "%RUNDIR%\supervisor.py" > "%RUNDIR%\supervisor.out.log" 2>&1"
 
 rem Wait for the port, up to ~15s.
 set /a TRIES=0

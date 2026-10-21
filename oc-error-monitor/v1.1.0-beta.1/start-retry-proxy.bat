@@ -25,7 +25,7 @@ if exist "%RUNDIR%\stopped.by-user" (
 )
 rem The peer lookup needs the repository root, which the runtime copy cannot
 rem infer from its own location.
-for %%I in ("%~dp0..\..") do > "%RUNDIR%\repo-path.txt" echo %%~fI
+if exist "%~dp0..\..\oc-error-monitor" for %%I in ("%~dp0..\..") do > "%RUNDIR%\repo-path.txt" echo %%~fI
 copy /y "%~dp0retry_proxy.py" "%RUNDIR%\retry_proxy.py" >nul 2>&1
 copy /y "%~dp0supervisor.py" "%RUNDIR%\supervisor.py" >nul 2>&1
 copy /y "%~dp0ui.html" "%RUNDIR%\ui.html" >nul 2>&1

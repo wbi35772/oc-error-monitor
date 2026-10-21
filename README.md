@@ -202,7 +202,7 @@ git -c http.proxy= -c https.proxy= pull
 
 | 目录 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| [`oc-error-monitor/v1.0.0/`](oc-error-monitor/v1.0.0/) | `1.0.0` | **线上运行中** | 请求级重试代理 + 三层看门狗，44 个模型全部经它代理 |
+| [`oc-error-monitor/v1.0.1/`](oc-error-monitor/v1.0.1/) | `1.0.1` | **线上运行中** | 请求级重试代理 + 三层看门狗 + 暂停/切换控制，44 个模型全部经它代理 |
 | [`oc-error-monitor/v1.1.0-beta.1/`](oc-error-monitor/v1.1.0-beta.1/) | `1.1.0-beta.1` | 测试基线 | 用真 CLI 当后端的 OpenAI 兼容端点 + 隔离测试基线 + 文档工具产物 |
 
 运行副本在 `%USERPROFILE%\.config\opencode\oc-error-monitor-v1.0.0\`（目录名即项目名+版本号），
@@ -222,7 +222,7 @@ git -c http.proxy= -c https.proxy= pull
 | 回测 | `backtest.py` | — | **拿历史数据回放策略**，算误报率，不用等一周 |
 
 全部默认 dry-run，写入要显式 `--apply`。详细说明和实测数据见
-[`oc-error-monitor/v1.0.0/README.md`](oc-error-monitor/v1.0.0/README.md)，
+[`oc-error-monitor/v1.0.1/README.md`](oc-error-monitor/v1.0.1/README.md)，
 设计与证据见 [`docs/superpowers/specs/2026-10-20-opencode-session-resilience-design.md`](docs/superpowers/specs/2026-10-20-opencode-session-resilience-design.md)。
 
 ```powershell

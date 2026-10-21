@@ -279,11 +279,26 @@ def _peer_dirs():
     return out
 
 
+def _vkey(v):
+    # "1.1.0-beta.1" must outrank "1.0.1": compare the numeric core first, and
+    # a pre-release only wins against the same core with nothing after it.
+    core, _, tail = (v or "").partition("-")
+    nums = []
+    for part in core.split("."):
+        nums.append(int(part) if part.isdigit() else 0)
+    return (tuple(nums), 0 if tail else 1)
+
+
 def _start_peer():
     dirs = [d for d in _peer_dirs() if d["version"] != VERSION]
     if not dirs:
         return {"ok": False, "error": "no peer build under oc-error-monitor/"}
-    peer = dirs[0]
+    # The newest sibling is the one worth testing against; an older build can
+    # even want the port this instance owns.
+    peer = max(dirs, key=lambda d: _vkey(d["version"]))
+    p = _probe_peer()
+    if p and p.get("version") == peer["version"]:
+        return {"ok": True, "action": "start_peer", "version": peer["version"], "already_running": True}
     rundir = os.path.join(
         os.path.expanduser("~"), ".config", "opencode", "oc-error-monitor-v" + peer["version"]
     )

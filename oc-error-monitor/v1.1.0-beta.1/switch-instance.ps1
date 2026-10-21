@@ -36,7 +36,7 @@ function Resolve-Build([string]$name) {
     if (-not $name) { return $all }
     # Aliases keep the everyday commands short: live is the production build,
     # beta is whatever carries the beta suffix right now.
-    $alias = @{ live = '1.0.0'; prod = '1.0.0'; beta = 'beta'; test = 'beta' }
+    $alias = @{ live = '1.0.1'; prod = '1.0.1'; beta = 'beta'; test = 'beta' }
     $needle = $name
     if ($alias.ContainsKey($name.ToLower())) { $needle = $alias[$name.ToLower()] }
     $hit = @($all | Where-Object {

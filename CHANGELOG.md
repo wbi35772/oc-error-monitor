@@ -6,6 +6,26 @@
 
 发版时打同名 tag：`git tag v1.0.0`。
 
+## 1.0.1 —— 可停可切（master，线上）
+
+运行版本。在 1.0.0 上加了"同时跑两个实例、随时停一个"的控制面。
+
+- **暂停 / 启动 / 切换**：`/__control` 新增 `stop` / `start_peer` / `stop_peer` / `switch`，
+  仪表盘多了三个按钮。`stop` 写 `stopped.by-user` 标记后退出；
+  `supervisor.py` 见到标记就不再拉起，所以"停"是真的停，不会被分钟任务复活。
+- **`/__peer`**：报告自己和同仓库内其它版本的端口、pid、版本、暂停标记，
+  仪表盘头部按 3 秒轮询显示对端胶囊。
+- **`switch-instance.bat`**：不依赖任何实例在跑的命令行入口 ——
+  `status` / `start <版本>` / `stop <版本>` / `switch <版本>`，
+  别名 `live`（1.0.1）/ `beta`（1.1.0-beta.1）。
+- **`start_peer` 选最高版本**：按版本号取最新的兄弟目录，避免误起旧版本抢端口。
+- **`wire_retry_proxy.py` 保险**：`--config PATH` 与 `--live` 开关；
+  不加 `--live` 而目标是线上 `opencode.json` 时直接拒绝，防实验改到生产接线。
+- **启动健壮性**：`repo-path.txt` 由 cmd 按控制台代码页写入，读取端依次尝试
+  utf-8-sig / gbk / mbcs；`install-watchdog.bat` 补齐 `ui.html` 与
+  `switch-instance.*`，避免 `/__ui` 报 ui.html 缺失。
+- 运行时目录改为按版本推导：`%USERPROFILE%\.config\opencode\oc-error-monitor-v<VERSION>`。
+
 ## 1.1.0-beta.1 — 实验基线（分支 `feature/docs-tooling`）
 
 新增，不影响 `1.0.0` 的运行版本。
