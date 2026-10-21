@@ -38,7 +38,15 @@ Endpoints
 ---------
     POST/GET <anything>        proxied to RETRY_PROXY_UPSTREAM
     GET  /__stats              counters as JSON
+    GET  /__pool               candidate members (mihomo group + DIRECT), L0
     GET  /__health             {"ok": true}
+
+Durable state
+-------------
+    settings.json beside the running copy holds SETTINGS and ROUTE, written
+    atomically on every /__control change and read at import, so a reboot no
+    longer drops force_route back to auto. Unknown keys in that file survive
+    a load/save round trip: the route block is meant to grow.
 """
 import http.server
 import json
@@ -154,6 +162,169 @@ SETTINGS = {
     "paused": False,      # paused = one attempt, no retry: pure pass-through
     "force_route": None,  # None | "proxy" | "direct"
 }
+
+# ---------------------------------------------------------------------------
+# Durable settings (L0 of the route rework)
+#
+# SETTINGS used to live in memory only, so a reboot silently dropped the route
+# back to auto and the 429s that direct mode had been avoiding came back with
+# no visible cause. SETTINGS and ROUTE are now mirrored into settings.json
+# beside the running copy, written atomically and read at import.
+#
+# The route block is deliberately a superset of what this build enforces:
+# pool and select.pin are read, strategy / rotate_on / probe / persist are
+# carried untouched for the layers that come later. Unknown keys from a newer
+# or hand-edited file are preserved verbatim, so a downgrade never eats a
+# field it does not understand.
+# ---------------------------------------------------------------------------
+SETTINGS_PATH = os.path.join(HERE, "settings.json")
+SETTINGS_SCHEMA = 1
+
+DEFAULT_ROUTE = {
+    "pool": {
+        # None = discover the selector that actually carries the upstream,
+        # instead of pinning a group name in code: the subscription is
+        # replaced often and a second group may appear.
+        "mihomo_group": None,
+        "extra_members": ["DIRECT"],
+        "refresh_s": 30,
+    },
+    "select": {
+        "strategy": "least_fail",
+        "pin": None,
+        "window_s": 600,
+        "threshold": 3,
+        "cooldown_s": 120,
+        "decay_half_life_s": 3600,
+    },
+    # rotate_on mirrors controller.SWITCH_CLASSES, the backtested set that may
+    # move an exit IP. It is deliberately small: AUTH_IP_REPUTATION belongs to
+    # the per-session layer (a model switch measured 8/8 against 33-83% for a
+    # node switch), RATE_LIMIT means back off rather than rotate, and NET_TLS /
+    # LOCAL_RELAY are not node problems. test_l0_settings.py pins the two sets
+    # together so they cannot drift apart.
+    "rotate_on": ["NET_CONNECT", "NET_DNS", "NET_STREAM", "NET_TIMEOUT"],
+    "fallback": ["proxy", "direct"],
+    "probe": {
+        "enabled": True,
+        "interval_s": 60,
+        "target": "http://cp.cloudflare.com/generate_204",
+        "timeout_s": 5,
+    },
+    "persist": {"path": "route_state.json", "fsync_s": 30},
+}
+
+ROUTE = json.loads(json.dumps(DEFAULT_ROUTE))  # deep copy, no shared lists
+
+
+def _deep_merge(base, over):
+    """over wins, but a dict in over merges into the dict in base."""
+    out = dict(base)
+    for k, v in (over or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+_settings_lock = threading.Lock()
+_settings_raw = {}
+
+
+def _coerce_settings(src):
+    """Apply the same clamps /__control applies, so a hand-edited file cannot
+    put the proxy into a state the dashboard could never set."""
+    if not isinstance(src, dict):
+        return
+    try:
+        if "attempts" in src:
+            SETTINGS["attempts"] = max(1, min(10, int(src["attempts"])))
+        if "timeout" in src:
+            SETTINGS["timeout"] = max(5.0, min(900.0, float(src["timeout"])))
+        if isinstance(src.get("backoff"), list) and src["backoff"]:
+            SETTINGS["backoff"] = [
+                max(0.0, min(30.0, float(x))) for x in src["backoff"]
+            ][:6]
+        if "paused" in src:
+            SETTINGS["paused"] = bool(src["paused"])
+        if "force_route" in src:
+            v = src["force_route"]
+            SETTINGS["force_route"] = v if v in ("proxy", "direct") else None
+    except (TypeError, ValueError):
+        pass
+
+
+def _load_settings():
+    global _settings_raw
+    try:
+        with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return
+    if not isinstance(raw, dict):
+        return
+    with _settings_lock:
+        _settings_raw = raw
+    _coerce_settings(raw.get("settings") or {})
+    route = raw.get("route")
+    if isinstance(route, dict):
+        ROUTE.clear()
+        ROUTE.update(_deep_merge(DEFAULT_ROUTE, route))
+
+
+def _route_diff(node, base):
+    """Only what differs from the defaults.
+
+    A full dump would freeze today's defaults into the file, so a later
+    corrected default (say, which failure classes may move an exit IP) would
+    never reach an instance that already had a settings file. Storing the diff
+    keeps a changed default live while still honouring an explicit choice.
+    """
+    out = {}
+    for k, v in node.items():
+        if k not in base:
+            out[k] = v
+        elif isinstance(v, dict) and isinstance(base[k], dict):
+            sub = _route_diff(v, base[k])
+            if sub:
+                out[k] = sub
+        elif v != base[k]:
+            out[k] = v
+    return out
+
+
+def save_settings(reason="control"):
+    """Write SETTINGS + ROUTE atomically. Returns (ok, error)."""
+    with _settings_lock:
+        raw = dict(_settings_raw)
+        raw["schema"] = SETTINGS_SCHEMA
+        # "paused" is a session switch, not a preference: a forgotten pause
+        # that survived a reboot would look exactly like the bug this layer
+        # fixes, the proxy quietly not retrying.
+        persisted = dict(SETTINGS)
+        persisted.pop("paused", None)
+        persisted["backoff"] = list(SETTINGS["backoff"])
+        raw["settings"] = persisted
+        raw["route"] = _route_diff(ROUTE, DEFAULT_ROUTE)
+        raw["saved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        raw["saved_by"] = reason
+        tmp = SETTINGS_PATH + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(raw, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, SETTINGS_PATH)
+            _settings_raw.clear()
+            _settings_raw.update(raw)
+            return True, None
+        except OSError as exc:
+            return False, "%s: %s" % (type(exc).__name__, exc)
+
+
+_load_settings()
+
 STARTED_TS = time.time()
 
 
@@ -238,6 +409,9 @@ def snapshot_stats():
         out["classes"] = dict(_classes)
         out["settings"] = dict(SETTINGS)
         out["settings"]["backoff"] = list(SETTINGS["backoff"])
+        out["route"] = json.loads(json.dumps(ROUTE))
+        out["settings_path"] = SETTINGS_PATH
+        out["settings_schema"] = SETTINGS_SCHEMA
         out["uptime_s"] = round(time.time() - STARTED_TS, 1)
         out["pid"] = os.getpid()
         out["port"] = PORT
@@ -610,6 +784,142 @@ def _resolve_chain(proxies, name, limit=8):
             break
         cur = nxt
     return chain
+
+
+# ---------------------------------------------------------------------------
+# Pool discovery (L0)
+#
+# The pool is the mihomo selector that carries the upstream, plus a DIRECT
+# pseudo member, so "direct vs proxy" stops being a special case and becomes
+# one candidate among many. Members are found at runtime: a new subscription,
+# or twenty new cfnew Workers added to the group, appear here with no code
+# change. ROUTE["pool"]["mihomo_group"] overrides discovery for the odd setup
+# where the selector has no OpenCode rule and no recognisable name.
+# ---------------------------------------------------------------------------
+_pool_cache = {"at": 0.0, "data": None}
+_pool_lock = threading.Lock()
+
+
+def _pool_group(proxies, secret, host):
+    """(group_name, basis) for the selector that carries the upstream."""
+    wanted = ROUTE["pool"].get("mihomo_group")
+    if isinstance(wanted, str) and wanted and wanted in proxies:
+        return wanted, "configured"
+
+    # A live connection is the honest answer: rules, groups and their defaults
+    # can disagree, the connection list cannot.
+    try:
+        conns = _mihomo("/connections", secret).get("connections") or []
+    except Exception:
+        conns = []
+    for c in conns:
+        meta = c.get("metadata") or {}
+        if host and host not in (meta.get("host") or ""):
+            continue
+        chains = c.get("chains") or []
+        if chains:
+            return chains[-1], "live connection"
+
+    try:
+        mode = (_mihomo("/configs", secret).get("mode") or "rule").lower()
+    except Exception:
+        mode = "rule"
+    if mode == "global":
+        return "GLOBAL", "mode global"
+    if mode == "direct":
+        return "DIRECT", "mode direct"
+
+    try:
+        rules = _mihomo("/rules", secret).get("rules") or []
+    except Exception:
+        rules = []
+    entry, _ = _rule_target(rules, host)
+    if entry and entry in proxies:
+        return entry, "rule"
+
+    for name, obj in proxies.items():
+        if (
+            isinstance(obj, dict)
+            and obj.get("type") == "Selector"
+            and "opencode" in name.lower()
+        ):
+            return name, "group name"
+    return None, "not found"
+
+
+def discover_pool(force=False):
+    """Candidate members, with the DIRECT pseudo member included."""
+    with _pool_lock:
+        ttl = max(5, int(ROUTE["pool"].get("refresh_s") or 30))
+        if (
+            not force
+            and _pool_cache["data"]
+            and time.time() - _pool_cache["at"] < ttl
+        ):
+            return _pool_cache["data"]
+
+    host = urllib.parse.urlsplit(UPSTREAM).hostname or ""
+    secret = _clash_secret()
+    out = {
+        "ok": False,
+        "group": None,
+        "basis": None,
+        "members": [],
+        "count": 0,
+        "controller": MIHOMO_API,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    try:
+        proxies = _mihomo("/proxies", secret).get("proxies", {})
+    except Exception as exc:
+        out["reason"] = (
+            "controller unreachable: %s: %s" % (type(exc).__name__, exc)
+        )[:220]
+        with _pool_lock:
+            _pool_cache["at"] = time.time()
+            _pool_cache["data"] = out
+        return out
+
+    group, basis = _pool_group(proxies, secret, host)
+    out["group"], out["basis"] = group, basis
+    names = []
+    if group and isinstance(proxies.get(group), dict):
+        names = list(proxies[group].get("all") or [])
+    for extra in ROUTE["pool"].get("extra_members") or []:
+        if extra not in names:
+            names.append(extra)
+
+    members = []
+    for name in names:
+        obj = proxies.get(name)
+        if obj is None and name == "DIRECT":
+            # DIRECT is a pseudo member of the pool. mihomo always lists it,
+            # but the pool must not lose its "bypass everything" candidate
+            # because a controller response omitted it.
+            obj = {"type": "Direct"}
+        if not isinstance(obj, dict):
+            continue
+        history = obj.get("history") or []
+        members.append(
+            {
+                "name": name,
+                "type": obj.get("type"),
+                "family": _node_family(name),
+                # A nested group and DIRECT cannot be delay tested on their
+                # own: mihomo answers 504 for both.
+                "probeable": (
+                    obj.get("type") not in GROUPS and obj.get("type") != "Direct"
+                ),
+                "history_delay": history[-1].get("delay") if history else None,
+            }
+        )
+    out["members"] = members
+    out["count"] = len(members)
+    out["ok"] = bool(group and members)
+    with _pool_lock:
+        _pool_cache["at"] = time.time()
+        _pool_cache["data"] = out
+    return out
 
 
 def _rule_target(rules, host):
@@ -1014,7 +1324,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         else:
             return self._send_json({"ok": False, "error": "unknown action " + action}, 400)
-        return self._send_json({"ok": True, "action": action, "settings": dict(SETTINGS)})
+        ok, err = save_settings(reason="control:" + action)
+        payload = {
+            "ok": True,
+            "action": action,
+            "settings": dict(SETTINGS),
+            "settings_path": SETTINGS_PATH,
+        }
+        if not ok:
+            # The change is live either way; saying it did not reach the disk
+            # is the difference between "survives a reboot" and "does not".
+            payload["persist_error"] = err
+        return self._send_json(payload)
 
     def _drain_and_exit(self):
         """Stop accepting, let the running requests finish, then leave the port.
@@ -1071,6 +1392,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/__net/switch":
                 n = int(self.headers.get("Content-Length") or 0)
                 return self._send_json(net_switch(self.rfile.read(n) if n else b""))
+            if path == "/__pool":
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                force = (qs.get("refresh") or ["0"])[0] not in ("0", "false", "")
+                return self._send_json(discover_pool(force=force))
             if path == "/__logs":
                 qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 return self._send_json(
@@ -1102,6 +1427,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "dashboard": "/__ui",
                     "stats": "/__stats",
                     "net": "/__net",
+                    "pool": "/__pool",
                     "logs": "/__logs",
                     "events": "/__events",
                     "health": "/__health",
