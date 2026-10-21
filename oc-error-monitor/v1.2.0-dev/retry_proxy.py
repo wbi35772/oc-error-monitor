@@ -52,6 +52,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import Counter, deque
 
@@ -285,6 +286,49 @@ def classify(status, body):
     return f"HTTP{status}"
 
 
+def snippet(raw, limit=240):
+    """The first bytes of an error body, flattened to one line.
+
+    A class such as RATE says what we called it; the body says what the
+    gateway called it. Without this the log records that we were refused
+    without recording why, and every later question needs a fresh experiment.
+    """
+    if not raw:
+        return ""
+    try:
+        text = raw.decode("utf-8", "replace")
+    except Exception:
+        return ""
+    return " ".join(text.split())[:limit]
+
+
+def retry_after_seconds(value):
+    """Seconds to wait from a Retry-After header, either form of it."""
+    if not value:
+        return None
+    value = str(value).strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        from email.utils import parsedate_to_datetime
+
+        when = parsedate_to_datetime(value)
+        delta = when.timestamp() - time.time()
+        return delta if delta > 0 else None
+    except Exception:
+        return None
+
+
+def pause(attempt, cls, wait_hint=None):
+    """Sleep before the next attempt, honouring the upstream's own hint."""
+    delay = backoff(attempt, cls)
+    if wait_hint:
+        # Backing off 0.4s when the server asked for 5 is how a request burns
+        # every attempt and still ends up exhausted.
+        delay = max(delay, min(wait_hint, 30.0))
+    time.sleep(delay)
+
+
 def should_retry(cls, status):
     if cls in ("IP_REP", "RATE", "5XX", "EMPTY_STREAM", "ERR"):
         return True
@@ -298,6 +342,292 @@ def backoff(attempt, cls=None):
         seq = SETTINGS["backoff"] or BACKOFF
         delay = seq[min(attempt, len(seq) - 1)]
     return delay * (0.85 + random.random() * 0.3)
+
+
+# ---------------------------------------------------------------------------
+# Which node is carrying the traffic
+# ---------------------------------------------------------------------------
+#
+# A 429 says the gateway refused; it does not say who was carrying the request.
+# When the refusal rate climbs, the first question is always the same: which
+# node, in which group, and how healthy is it. mihomo knows, but only through
+# its controller API, so this reads that API and reports what is actually on
+# the wire rather than what the configuration says should be.
+
+CLASH_DIRS = [
+    os.path.join(os.environ.get("APPDATA") or "", "io.github.clash-verge-rev.clash-verge-rev"),
+    os.path.join(os.environ.get("LOCALAPPDATA") or "", "io.github.clash-verge-rev.clash-verge-rev"),
+]
+MIHOMO_API = os.environ.get("RETRY_PROXY_MIHOMO_API", "http://127.0.0.1:9097")
+_NET_TTL = 3.0
+_net_cache = {"at": 0.0, "data": None}
+_net_lock = threading.Lock()
+
+
+def _clash_secret():
+    """The controller secret Clash Verge generated for this profile."""
+    pattern = re.compile(r"(?m)^\s*secret\s*:\s*(.+?)\s*$")
+    for base in CLASH_DIRS:
+        for name in ("clash-verge.yaml", "config.yaml"):
+            path = os.path.join(base, name)
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    match = pattern.search(f.read())
+            except OSError:
+                continue
+            if match:
+                return match.group(1).strip().strip('"').strip("'")
+    return ""
+
+
+def _mihomo(path, secret, timeout=1.8):
+    req = urllib.request.Request(
+        MIHOMO_API.rstrip("/") + path, headers={"Accept": "application/json"}
+    )
+    if secret:
+        req.add_header("Authorization", "Bearer " + secret)
+    # Loopback: the system proxy must never be consulted for the controller,
+    # or a broken proxy makes the controller itself look unreachable.
+    with _direct_opener.open(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8", "replace"))
+
+
+GROUPS = ("Selector", "URLTest", "Fallback", "Relay", "LoadBalance")
+
+
+def _resolve_chain(proxies, name, limit=8):
+    """Follow a group down to the node that actually leaves the machine."""
+    chain, cur = [], name
+    while cur and len(chain) < limit:
+        chain.append(cur)
+        obj = proxies.get(cur) or {}
+        if obj.get("type") not in GROUPS:
+            break
+        nxt = obj.get("now")
+        if not nxt or nxt == cur:
+            break
+        cur = nxt
+    return chain
+
+
+def _rule_target(rules, host):
+    """The rule that would carry this host, and what it points at.
+
+    Domain-shaped rules are matched here. GeoSite and GeoIP rules need the
+    database mihomo holds, so they are skipped rather than guessed at; the
+    basis field says which rule answered, so a wrong guess stays visible.
+    """
+    h = (host or "").lower()
+    for rule in rules:
+        kind = (rule.get("type") or "").lower()
+        payload = (rule.get("payload") or "").strip()
+        low = payload.lower()
+        if kind == "match":
+            return payload or "MATCH", "MATCH"
+        if kind == "domain" and h == low:
+            return rule.get("proxy"), "DOMAIN " + payload
+        if kind == "domainsuffix" and (h == low or h.endswith("." + low)):
+            return rule.get("proxy"), "DOMAIN-SUFFIX " + payload
+        if kind == "domainkeyword" and low and low in h:
+            return rule.get("proxy"), "DOMAIN-KEYWORD " + payload
+        if kind == "domainregex":
+            try:
+                if re.search(payload, host or "", re.I):
+                    return rule.get("proxy"), "DOMAIN-REGEX " + payload
+            except re.error:
+                pass
+    return None, None
+
+
+def net_snapshot():
+    """Node, group and live connections for the upstream, cached briefly."""
+    with _net_lock:
+        if _net_cache["data"] and time.time() - _net_cache["at"] < _NET_TTL:
+            return _net_cache["data"]
+
+    base = {
+        "controller": MIHOMO_API,
+        "proxy": UPSTREAM_PROXY or "-",
+        "upstream": UPSTREAM,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    secret = _clash_secret()
+    try:
+        proxies = _mihomo("/proxies", secret).get("proxies", {})
+    except Exception as exc:
+        out = dict(
+            base,
+            ok=False,
+            reason=("controller unreachable: %s: %s" % (type(exc).__name__, exc))[:220],
+        )
+        with _net_lock:
+            _net_cache["at"] = time.time()
+            _net_cache["data"] = out
+        return out
+
+    host = urllib.parse.urlsplit(UPSTREAM).hostname or ""
+
+    try:
+        mode = (_mihomo("/configs", secret).get("mode") or "rule").lower()
+    except Exception:
+        mode = "rule"
+    try:
+        rules = _mihomo("/rules", secret).get("rules") or []
+    except Exception:
+        rules = []
+
+    # A live connection is the honest answer to "what is on the wire": rules,
+    # groups and their defaults can disagree, the connection list cannot. It is
+    # also the only place the real chain of nested groups shows up.
+    live, live_chain = [], []
+    try:
+        conns = _mihomo("/connections", secret).get("connections") or []
+    except Exception:
+        conns = []
+    for c in conns:
+        meta = c.get("metadata") or {}
+        if host and host not in (meta.get("host") or ""):
+            continue
+        chains = c.get("chains") or []
+        live.append(
+            {
+                "host": meta.get("host") or meta.get("destinationIP") or "?",
+                "chains": chains,
+                "upload": c.get("upload"),
+                "download": c.get("download"),
+                "start": c.get("start"),
+            }
+        )
+        if not live_chain and chains:
+            live_chain = list(chains)
+
+    matched_rule = None
+    if live_chain:
+        chain = list(reversed(live_chain))  # group .. node
+        basis = "live connection"
+    else:
+        entry = None
+        if mode == "global":
+            entry, basis = "GLOBAL", "mode global"
+        elif mode == "direct":
+            entry, basis = "DIRECT", "mode direct"
+        else:
+            entry, matched_rule = _rule_target(rules, host)
+            basis = matched_rule or "no rule matched"
+        if not entry:
+            # Nothing matched: fall back to the group that looks meant for it.
+            for name, obj in proxies.items():
+                if (
+                    isinstance(obj, dict)
+                    and obj.get("type") == "Selector"
+                    and "opencode" in name.lower()
+                ):
+                    entry, basis = name, "group name"
+                    break
+        chain = _resolve_chain(proxies, entry) if entry else []
+
+    node = chain[-1] if chain else None
+    group = chain[0] if len(chain) > 1 else None
+    node_obj = proxies.get(node) or {}
+    group_obj = proxies.get(group) or {}
+    history = node_obj.get("history") or []
+
+    # The same classification the Clash Verge extension script uses to put
+    # residential and preferred nodes first: a node called 家宽 / 住宅 / 原生 is
+    # not the same bet as one called 多线-10, and the subscriber cannot tell
+    # them apart from the name alone.
+    preferred_re = re.compile(r"家宽|住宅|ISP|原生|WARP|MASQUE|Plus|US|美国|SG|新加坡|JP|日本", re.I)
+    members = []
+    for name in (group_obj.get("all") or [])[:80]:
+        obj = proxies.get(name)
+        if not isinstance(obj, dict):
+            continue
+        h = obj.get("history") or []
+        members.append(
+            {
+                "name": name,
+                "type": obj.get("type"),
+                "delay": h[-1].get("delay") if h else None,
+                "preferred": bool(preferred_re.search(name)),
+            }
+        )
+
+    out = dict(
+        base,
+        ok=True,
+        mode=mode,
+        basis=basis,
+        rule=matched_rule,
+        route=SETTINGS["force_route"] or "auto",
+        group=group,
+        node=node,
+        node_type=node_obj.get("type"),
+        node_preferred=bool(preferred_re.search(node or "")),
+        chain=chain,
+        candidates=len(group_obj.get("all") or []),
+        delay_ms=history[-1].get("delay") if history else None,
+        history=[{"time": h.get("time"), "delay": h.get("delay")} for h in history[-6:]],
+        live=live[:5],
+        members=members,
+        groups=[
+            {"name": n, "now": o.get("now"), "count": len(o.get("all") or [])}
+            for n, o in proxies.items()
+            if isinstance(o, dict) and o.get("type") in GROUPS
+        ][:12],
+    )
+    with _net_lock:
+        _net_cache["at"] = time.time()
+        _net_cache["data"] = out
+    return out
+
+def tail_log(limit=200, cls=None, q=None):
+    """The newest records from the JSONL log, newest first.
+
+    The live SSE feed only has what arrived while the page was open; a refusal
+    that happened before the tab was loaded is exactly the one worth reading,
+    so the file is the source for history.
+    """
+    try:
+        limit = max(1, min(int(limit), 2000))
+    except (TypeError, ValueError):
+        limit = 200
+    try:
+        with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
+            lines = deque(f, maxlen=limit * 6)
+    except FileNotFoundError:
+        # A freshly started instance has never logged anything. That is an empty
+        # history, not a broken dashboard: the page should say so and keep polling.
+        return {
+            "ok": True,
+            "path": LOG_PATH,
+            "count": 0,
+            "records": [],
+            "note": "no requests logged yet",
+        }
+    except OSError as exc:
+        return {"ok": False, "reason": str(exc) or "log file not readable", "path": LOG_PATH, "records": []}
+
+    out = []
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        trail = rec.get("attempts") or []
+        if cls == "!OK":
+            if trail and trail[-1] == "OK":
+                continue
+        elif cls and cls not in trail:
+            continue
+        if q and q.lower() not in json.dumps(rec, ensure_ascii=False).lower():
+            continue
+        out.append(rec)
+        if len(out) >= limit:
+            break
+    return {"ok": True, "path": LOG_PATH, "count": len(out), "records": out}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -416,12 +746,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
             script = os.path.join(here, "restart-retry-proxy.ps1")
             if not os.path.exists(script):
                 return self._send_json({"ok": False, "error": "restart-retry-proxy.ps1 missing"}, 400)
-            subprocess.Popen(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Handover"],
-                cwd=here, creationflags=0x00000008, close_fds=True,
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            # A handover that fails silently is worse than one that fails: the
+            # button says it started and nothing happens. Keep its output.
+            log_path = os.path.join(here, "restart.log")
+            ps = os.path.join(
+                os.environ.get("SystemRoot", r"C:\Windows"),
+                "System32", "WindowsPowerShell", "v1.0", "powershell.exe",
             )
-            return self._send_json({"ok": True, "action": "restart", "note": "zero-downtime handover started"})
+            if not os.path.exists(ps):
+                ps = "powershell"
+            try:
+                out = open(log_path, "ab")
+                out.write(
+                    ("\n=== %s restart requested by dashboard (pid %d) ===\n"
+                     % (time.strftime("%Y-%m-%d %H:%M:%S"), os.getpid())).encode()
+                )
+                out.flush()
+                subprocess.Popen(
+                    [ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Handover"],
+                    cwd=here, creationflags=0x08000000, close_fds=True,
+                    stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                )
+            except Exception as exc:
+                return self._send_json(
+                    {"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}, 500
+                )
+            return self._send_json(
+                {"ok": True, "action": "restart", "log": log_path,
+                 "note": "zero-downtime handover started"}
+            )
         elif action == "shutdown":
             self._send_json({"ok": True, "action": "shutdown"})
             threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
@@ -489,6 +842,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._serve_events()
             if path == "/__stats":
                 return self._send_json(snapshot_stats())
+            if path == "/__net":
+                return self._send_json(net_snapshot())
+            if path == "/__logs":
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                return self._send_json(
+                    tail_log(
+                        (qs.get("limit") or ["200"])[0],
+                        (qs.get("cls") or [None])[0],
+                        (qs.get("q") or [None])[0],
+                    )
+                )
             if path == "/__config":
                 return self._send_json(snapshot_stats())
             if path == "/__health":
@@ -510,6 +874,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "version": VERSION,
                     "dashboard": "/__ui",
                     "stats": "/__stats",
+                    "net": "/__net",
+                    "logs": "/__logs",
                     "events": "/__events",
                     "health": "/__health",
                     "upstream": UPSTREAM,
@@ -540,6 +906,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         bump("requests")
         trail = []
+        detail = []
         t_start = time.time()
 
         resp = None
@@ -568,6 +935,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         # 200 with an empty body: the request was accepted and
                         # then dropped. Nothing reached the client, so retry.
                         trail.append("EMPTY_STREAM")
+                        detail.append({"n": attempt + 1, "cls": "EMPTY_STREAM", "status": 200})
                         try:
                             resp.close()
                         except Exception:
@@ -577,6 +945,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             continue
                         break
                     trail.append("OK")
+                    detail.append({"n": attempt + 1, "cls": "OK", "status": 200})
                     streamed = True
                     break
 
@@ -584,8 +953,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cls = classify(status, last_body)
                 trail.append(cls)
                 last_status = status
+                hint = retry_after_seconds(resp.headers.get("Retry-After"))
+                detail.append(
+                    {
+                        "n": attempt + 1,
+                        "cls": cls,
+                        "status": status,
+                        "retry_after": hint,
+                        "snippet": snippet(last_body),
+                    }
+                )
                 if attempt + 1 < max_attempts and should_retry(cls, status):
-                    time.sleep(backoff(attempt, cls))
+                    pause(attempt, cls, hint)
                     continue
                 break
             except urllib.error.HTTPError as e:
@@ -594,24 +973,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     last_body = e.read()
                 except Exception:
                     last_body = b""
+                if not last_body:
+                    # A refusal sometimes carries its reason on e.fp rather than
+                    # through read(): an empty snippet turns a diagnosable 404 or
+                    # 401 into a bare status code in the log.
+                    try:
+                        last_body = e.fp.read() or b""
+                    except Exception:
+                        last_body = b""
                 cls = classify(last_status, last_body)
                 trail.append(cls)
+                hint = retry_after_seconds(e.headers.get("Retry-After") if e.headers else None)
+                detail.append(
+                    {
+                        "n": attempt + 1,
+                        "cls": cls,
+                        "status": last_status,
+                        "retry_after": hint,
+                        "snippet": snippet(last_body),
+                    }
+                )
                 if attempt + 1 < max_attempts and should_retry(cls, last_status):
-                    time.sleep(backoff(attempt, cls))
+                    pause(attempt, cls, hint)
                     continue
                 break
             except Exception as e:
                 trail.append(f"ERR:{type(e).__name__}")
+                detail.append(
+                    {"n": attempt + 1, "cls": f"ERR:{type(e).__name__}", "err": str(e)[:200]}
+                )
                 last_status = None
                 last_body = b""
                 if not route_direct and _proxy_refused(e):
                     # mihomo is down or its port moved: stop paying for it.
                     route_direct = True
                     trail.append("ROUTE:direct")
+                    detail.append({"n": attempt + 1, "cls": "ROUTE:direct"})
                     time.sleep(backoff(attempt, "ERR"))
                     continue
                 if attempt + 1 < max_attempts:
-                    time.sleep(backoff(attempt, "ERR"))
+                    pause(attempt, "ERR")
                     continue
                 break
 
@@ -648,6 +1049,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "body_len": len(body),
                 "model": _peek_model(body),
                 "route": "direct" if route_direct else "proxy",
+                # The last status is what the client got; the detail list is what
+                # the upstream said on the way there. Four attempts is enough to
+                # recognise a pattern without turning the log into a transcript.
+                "status": last_status,
+                "detail": detail[-4:],
             }
         )
 

@@ -32,3 +32,4 @@ __pycache__/
 
 # Test harness scratch: the proxy copy and its logs are per-run artifacts.
 **/testenv/_run/
+.playwright-mcp/

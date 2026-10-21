@@ -14,8 +14,8 @@
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--fg);
     font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
-  .wrap{max-width:1080px;margin:0 auto;padding:18px 16px 40px}
-  header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-bottom:14px}
+  .wrap{max-width:1120px;margin:0 auto;padding:18px 16px 40px}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-bottom:12px}
   h1{font-size:16px;font-weight:650;margin:0}
   .pill{display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:999px;
     font-size:12px;font-weight:600;border:1px solid var(--line);background:var(--panel)}
@@ -24,6 +24,11 @@
   .pill.warn .dot{background:var(--warn);box-shadow:0 0 0 3px rgba(210,153,34,.18)}
   .pill.err .dot{background:var(--err);box-shadow:0 0 0 3px rgba(248,81,73,.18)}
   .meta{color:var(--mut);font-size:12px;font-family:var(--mono)}
+  nav{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px;border-bottom:1px solid var(--line);padding-bottom:10px}
+  nav button{border:1px solid transparent;background:transparent;color:var(--mut);
+    border-radius:8px;padding:7px 13px;font:600 12.5px system-ui;cursor:pointer}
+  nav button:hover{background:var(--panel);color:var(--fg)}
+  nav button[aria-current="true"]{background:var(--panel2);border-color:var(--line);color:var(--fg)}
   main{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
   .card h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
@@ -35,17 +40,20 @@
   .kpi.bad .n{color:var(--err)} .kpi.warn .n{color:var(--warn)} .kpi.good .n{color:var(--ok)}
   .chart{grid-column:span 8}
   .classes{grid-column:span 4}
-  .ctrls{grid-column:span 5}
-  .feed{grid-column:span 7}
-  .events{grid-column:span 12}
+  .diag{grid-column:span 12}
+  .net-main{grid-column:span 7}
+  .net-live{grid-column:span 5}
+  .net-members{grid-column:span 7}
+  .net-groups{grid-column:span 5}
+  .logs{grid-column:span 12}
   canvas{width:100%;height:150px;display:block}
   .legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--mut);font-size:11px;margin-top:6px}
   .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
   .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;
     border-bottom:1px dashed rgba(255,255,255,.05)}
   .row:last-child{border-bottom:0}
-  .row .k{font-family:var(--mono);font-size:12px;color:var(--mut)}
-  .row .v{font-family:var(--mono);font-size:12px}
+  .row .k{font-family:var(--mono);font-size:12px;color:var(--mut);flex:0 0 auto}
+  .row .v{font-family:var(--mono);font-size:12px;text-align:right;overflow:hidden;text-overflow:ellipsis}
   .bar{height:7px;border-radius:4px;background:var(--panel2);overflow:hidden;margin-top:4px}
   .bar > i{display:block;height:100%;background:var(--info);border-radius:4px}
   .cls{margin-bottom:9px}
@@ -61,26 +69,41 @@
   button.primary:hover{background:#388bfd}
   button.danger{color:#ffb3ad;border-color:#5b2b2b}
   button.danger:hover{background:#3a1d1d}
-  .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  button.on{background:#243244;border-color:#3d5a80;color:#cfe3ff}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
   table{width:100%;border-collapse:collapse;font:12px var(--mono)}
   th{position:sticky;top:0;background:var(--panel);text-align:left;color:var(--mut);
-    font-weight:600;font-size:11px;padding:6px 8px;border-bottom:1px solid var(--line)}
+    font-weight:600;font-size:11px;padding:6px 8px;border-bottom:1px solid var(--line);z-index:1}
   td{padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.045);white-space:nowrap;
-    overflow:hidden;text-overflow:ellipsis;max-width:260px}
+    overflow:hidden;text-overflow:ellipsis;max-width:280px}
+  tr.ev{cursor:pointer}
+  tr.ev:hover td{background:rgba(255,255,255,.025)}
+  tr.det td{background:#0f141c;white-space:normal;padding:8px 10px}
   .tag{display:inline-block;padding:1px 6px;border-radius:5px;font-size:10.5px;font-weight:700}
   .tag.OK{background:rgba(63,185,80,.15);color:var(--ok)}
   .tag.IP_REP{background:rgba(210,153,34,.16);color:var(--warn)}
   .tag.EMPTY_STREAM,.tag.RATE{background:rgba(188,140,255,.16);color:var(--purple)}
   .tag.IDENTITY,.tag.CF_UA,.tag.ERR{background:rgba(248,81,73,.15);color:var(--err)}
   .tag.HTTP4{background:rgba(88,166,255,.15);color:var(--info)}
-  .scroll{max-height:300px;overflow:auto}
+  .scroll{max-height:340px;overflow:auto}
+  .chain{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 10px}
+  .chain .hop{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;
+    font:600 12px var(--mono)}
+  .chain .hop.leaf{border-color:#2f5f3f;background:rgba(63,185,80,.10);color:#9ae6b4}
+  .chain .arrow{color:var(--dim)}
+  .big{font:650 18px/1.25 var(--mono)}
+  .snip{font:11.5px var(--mono);color:var(--mut);white-space:pre-wrap;word-break:break-all;
+    background:#0b1017;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:4px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(80px);
     background:#1f2937;border:1px solid var(--line);border-radius:9px;padding:9px 14px;
     font-size:12.5px;opacity:0;transition:.25s;pointer-events:none;z-index:9}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .view{display:none}
+  .view.active{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;
+    grid-column:span 12;min-width:0}
   @media (max-width:900px){
     .kpis{grid-template-columns:repeat(3,1fr)}
-    .chart,.classes,.ctrls,.feed{grid-column:span 12}
+    .chart,.classes,.net-main,.net-live,.net-members,.net-groups,.diag{grid-column:span 12}
   }
   @media (max-width:420px){ .kpis{grid-template-columns:repeat(2,1fr)} .wrap{padding:12px 10px 30px} }
 </style>
@@ -91,7 +114,7 @@
     <h1>Retry Proxy</h1>
     <span class="pill" id="health"><span class="dot"></span><span id="healthText">…</span></span>
     <span class="meta" id="ver">v…</span>
-    <span class="meta" id="where">127.0.0.1:8787</span>
+    <span class="meta" id="where"></span>
     <span class="meta" id="uptime"></span>
     <span class="meta" id="pid"></span>
     <span style="flex:1"></span>
@@ -99,115 +122,208 @@
     <button id="restartBtn" class="primary">零停机重启</button>
   </header>
 
+  <nav id="nav">
+    <button data-view="overview">总览</button>
+    <button data-view="network">网络</button>
+    <button data-view="logs">日志</button>
+    <button data-view="settings">设置</button>
+  </nav>
+
   <main>
-    <section class="kpis">
-      <div class="kpi"><div class="n" id="k-requests">0</div><div class="l">请求</div></div>
-      <div class="kpi good"><div class="n" id="k-rescue">–</div><div class="l">救回率</div></div>
-      <div class="kpi warn"><div class="n" id="k-retried">0</div><div class="l">需要重试</div></div>
-      <div class="kpi bad"><div class="n" id="k-failed">0</div><div class="l">失败</div></div>
-      <div class="kpi" id="kpi-iprep"><div class="n" id="k-iprep">0%</div><div class="l">IP 信誉占比</div></div>
-      <div class="kpi warn"><div class="n" id="k-trunc">0</div><div class="l">SSE 截断</div></div>
+    <!-- ======================= 总览 ======================= -->
+    <section class="view" id="v-overview">
+      <div class="kpis">
+        <div class="kpi"><div class="n" id="k-requests">0</div><div class="l">请求</div></div>
+        <div class="kpi good"><div class="n" id="k-rescue">–</div><div class="l">救回率</div></div>
+        <div class="kpi warn"><div class="n" id="k-retried">0</div><div class="l">需要重试</div></div>
+        <div class="kpi bad"><div class="n" id="k-failed">0</div><div class="l">失败</div></div>
+        <div class="kpi" id="kpi-iprep"><div class="n" id="k-iprep">0%</div><div class="l">IP 信誉占比</div></div>
+        <div class="kpi warn"><div class="n" id="k-trunc">0</div><div class="l">SSE 截断</div></div>
+      </div>
+
+      <section class="card chart">
+        <h2>最近 3 分钟</h2>
+        <canvas id="chart" width="800" height="150"></canvas>
+        <div class="legend">
+          <span><i style="background:var(--ok)"></i>一次成功</span>
+          <span><i style="background:var(--warn)"></i>重试后成功</span>
+          <span><i style="background:var(--err)"></i>仍失败</span>
+        </div>
+      </section>
+
+      <section class="card classes">
+        <h2>尝试分类</h2>
+        <div id="classList" class="meta">暂无数据</div>
+      </section>
+
+      <section class="card diag">
+        <h2>诊断</h2>
+        <div class="row"><span class="k">总尝试 / 请求</span><span class="v" id="d-att"></span></div>
+        <div class="row"><span class="k">重试后仍失败</span><span class="v" id="d-exh"></span></div>
+        <div class="row"><span class="k">最近事件</span><span class="v" id="d-last"></span></div>
+        <div class="row"><span class="k">当前出口</span><span class="v" id="d-node">–</span></div>
+        <div class="btnrow">
+          <button id="copyBtn">复制诊断 JSON</button>
+          <button id="rawBtn">打开 /__stats</button>
+        </div>
+      </section>
     </section>
 
-    <section class="card chart">
-      <h2>最近 3 分钟</h2>
-      <canvas id="chart" width="800" height="150"></canvas>
-      <div class="legend">
-        <span><i style="background:var(--ok)"></i>一次成功</span>
-        <span><i style="background:var(--warn)"></i>重试后成功</span>
-        <span><i style="background:var(--err)"></i>仍失败</span>
-      </div>
+    <!-- ======================= 网络 ======================= -->
+    <section class="view" id="v-network">
+      <section class="card net-main">
+        <h2>当前链路</h2>
+        <div class="chain" id="net-chain"><span class="meta">读取中…</span></div>
+        <div class="row"><span class="k">出口节点</span><span class="v big" id="net-node">–</span></div>
+        <div class="row"><span class="k">节点类型</span><span class="v" id="net-type">–</span></div>
+        <div class="row"><span class="k">最近延迟</span><span class="v" id="net-delay">–</span></div>
+        <div class="row"><span class="k">节点性质</span><span class="v" id="net-kind">–</span></div>
+        <div class="row"><span class="k">命中规则</span><span class="v" id="net-basis">–</span></div>
+        <div class="row"><span class="k">策略组 / 候选</span><span class="v" id="net-group">–</span></div>
+        <div class="row"><span class="k">上游 / 代理</span><span class="v" id="net-ups">–</span></div>
+        <div class="row"><span class="k">控制器</span><span class="v" id="net-ctl">–</span></div>
+        <div class="row"><span class="k">延迟历史</span><span class="v" id="net-hist">–</span></div>
+      </section>
+
+      <section class="card net-live">
+        <h2>实时连接（opencode.ai）</h2>
+        <div id="net-live" class="meta">暂无活动连接</div>
+      </section>
+
+      <section class="card net-members">
+        <h2>策略组候选（优选在前）</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>节点</th><th>类型</th><th>延迟</th><th>性质</th></tr></thead>
+          <tbody id="net-rows"><tr><td colspan="4" class="meta">–</td></tr></tbody>
+        </table></div>
+      </section>
+
+      <section class="card net-groups">
+        <h2>策略组</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>分组</th><th>当前</th><th>候选</th></tr></thead>
+          <tbody id="net-groups"><tr><td colspan="3" class="meta">–</td></tr></tbody>
+        </table></div>
+      </section>
     </section>
 
-    <section class="card classes">
-      <h2>尝试分类</h2>
-      <div id="classList" class="meta">暂无数据</div>
+    <!-- ======================= 日志 ======================= -->
+    <section class="view" id="v-logs">
+      <section class="card logs">
+        <h2>请求日志</h2>
+        <div class="btnrow" style="margin:0 0 10px">
+          <button class="on" data-cls="">全部</button>
+          <button data-cls="!OK">仅失败</button>
+          <button data-cls="RATE">RATE</button>
+          <button data-cls="IP_REP">IP_REP</button>
+          <button data-cls="IDENTITY">IDENTITY</button>
+          <button data-cls="ERR">ERR</button>
+          <input id="logQ" type="search" placeholder="搜索模型 / 路径 / 错误体…" style="flex:1;min-width:160px" />
+          <button id="logReload">刷新</button>
+          <span class="meta" id="logCount"></span>
+        </div>
+        <div class="scroll" style="max-height:560px">
+          <table>
+            <thead><tr><th>时间</th><th>模型</th><th>尝试</th><th>耗时</th><th>状态</th><th>说明</th></tr></thead>
+            <tbody id="logRows"><tr><td colspan="6" class="meta">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
-    <section class="card ctrls">
-      <h2>手动介入</h2>
-      <div class="ctl-grid">
-        <label class="f">最大尝试次数
-          <input id="f-attempts" type="number" min="1" max="10" step="1" />
-        </label>
-        <label class="f">超时（秒）
-          <input id="f-timeout" type="number" min="5" max="900" step="5" />
-        </label>
-        <label class="f">上游线路
-          <select id="f-route">
-            <option value="">跟随自动</option>
-            <option value="proxy">强制走 Clash</option>
-            <option value="direct">强制直连</option>
-          </select>
-        </label>
-        <label class="f">退避序列（秒，逗号分隔）
-          <input id="f-backoff" type="text" placeholder="0.4,1.0,1.8" />
-        </label>
-      </div>
-      <div class="btnrow">
-        <button class="primary" id="applyBtn">应用</button>
-        <button id="resetBtn">清零计数</button>
-        <button class="danger" id="shutdownBtn">停止代理</button>
-        <button class="danger" id="stopBtn">停止本实例</button>
-      </div>
-      <div class="row"><span class="k">上游</span><span class="v" id="v-upstream"></span></div>
-      <div class="row"><span class="k">代理</span><span class="v" id="v-proxy"></span></div>
-      <div class="row"><span class="k">状态</span><span class="v" id="v-state"></span></div>
-    </section>
+    <!-- ======================= 设置 ======================= -->
+    <section class="view" id="v-settings">
+      <section class="card" style="grid-column:span 7">
+        <h2>重试策略</h2>
+        <div class="ctl-grid">
+          <label class="f">最大尝试次数
+            <input id="f-attempts" type="number" min="1" max="10" step="1" />
+          </label>
+          <label class="f">超时（秒）
+            <input id="f-timeout" type="number" min="5" max="900" step="5" />
+          </label>
+          <label class="f">上游线路
+            <select id="f-route">
+              <option value="">跟随自动</option>
+              <option value="proxy">强制走 Clash</option>
+              <option value="direct">强制直连</option>
+            </select>
+          </label>
+          <label class="f">退避序列（秒，逗号分隔）
+            <input id="f-backoff" type="text" placeholder="0.4,1.0,1.8" />
+          </label>
+        </div>
+        <div class="btnrow">
+          <button class="primary" id="applyBtn">应用</button>
+          <button id="resetBtn">清零计数</button>
+          <button class="danger" id="shutdownBtn">停止代理</button>
+          <button class="danger" id="stopBtn">停止本实例</button>
+        </div>
+      </section>
 
-    <section class="card feed">
-      <h2>诊断</h2>
-      <div class="row"><span class="k">总尝试 / 请求</span><span class="v" id="d-att"></span></div>
-      <div class="row"><span class="k">重试后仍失败</span><span class="v" id="d-exh"></span></div>
-      <div class="row"><span class="k">最近事件</span><span class="v" id="d-last"></span></div>
-      <div class="btnrow">
-        <button id="copyBtn">复制诊断 JSON</button>
-        <button id="rawBtn">打开 /__stats</button>
-      </div>
-    </section>
-
-    <section class="card events">
-      <h2>实时请求</h2>
-      <div class="scroll">
-        <table>
-          <thead><tr><th>时间</th><th>模型</th><th>尝试</th><th>耗时</th><th>字节</th><th>线路</th></tr></thead>
-          <tbody id="rows"><tr><td colspan="6" class="meta">等待第一个请求…</td></tr></tbody>
-        </table>
-      </div>
+      <section class="card" style="grid-column:span 5">
+        <h2>本实例</h2>
+        <div class="row"><span class="k">版本</span><span class="v" id="s-ver">–</span></div>
+        <div class="row"><span class="k">监听</span><span class="v" id="s-where">–</span></div>
+        <div class="row"><span class="k">运行时长</span><span class="v" id="s-up">–</span></div>
+        <div class="row"><span class="k">pid</span><span class="v" id="s-pid">–</span></div>
+        <div class="row"><span class="k">上游</span><span class="v" id="s-ups">–</span></div>
+        <div class="row"><span class="k">代理</span><span class="v" id="s-proxy">–</span></div>
+        <div class="row"><span class="k">状态</span><span class="v" id="s-state">–</span></div>
+        <div class="row"><span class="k">日志文件</span><span class="v" id="s-logpath">–</span></div>
+      </section>
     </section>
   </main>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
+"use strict";
+
+/* ---------------------------------------------------------------------------
+ * Store: one object, every view reads it, every poll writes it.
+ * No framework and no build step: the dashboard is served by the same stdlib
+ * HTTP server as the proxy, so a bundle step would be a deployment liability
+ * for a page that has four views.
+ * ------------------------------------------------------------------------- */
+const store = {
+  stats: null,
+  net: null,
+  logs: [],
+  live: [],
+  logCls: "",
+  logQ: "",
+  view: "overview",
+};
 const $ = (id) => document.getElementById(id);
-let last = null, paused = false, events = [], live = [];
-let buckets = new Map(); // bucketIndex -> {ok,retried,failed}
 const BUCKET_MS = 2000, SPAN = 90;
+let buckets = new Map();
 
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),1800); }
-
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 async function api(path, opts){
   const r = await fetch(path, Object.assign({cache:'no-store'}, opts||{}));
   if(!r.ok) throw new Error(path+' -> '+r.status);
   return r.json();
 }
-
 function fmtUptime(s){
   s = Math.max(0, Math.round(s));
   const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60;
   return (h?h+'h ':'')+(h||m?m+'m ':'')+x+'s';
 }
-function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function clsTag(c){
-  const k = /^HTTP/.test(c) ? 'HTTP4' : c;
-  return '<span class="tag '+k+'">'+esc(c)+'</span>';
+function clsTag(c){ const k = /^HTTP/.test(c) ? 'HTTP4' : c; return '<span class="tag '+k+'">'+esc(c)+'</span>'; }
+function delayCell(ms){
+  if(ms==null) return '<span class="meta">–</span>';
+  if(ms===0) return '<span style="color:var(--err)">超时</span>';
+  const color = ms<400 ? 'var(--ok)' : ms<900 ? 'var(--warn)' : 'var(--err)';
+  return '<span style="color:'+color+'">'+ms+'ms</span>';
 }
 
+/* ---------------------------- overview ---------------------------------- */
 function renderStats(s){
-  last = s;
-  const set = (id,v)=>{ const el=$(id); if(el) el.textContent=v; };
+  store.stats = s;
+  const set=(id,v)=>{ const el=$(id); if(el) el.textContent=v; };
   set('k-requests', s.requests ?? 0);
   set('k-retried', s.retried_requests ?? 0);
   set('k-failed', s.failed_requests ?? 0);
@@ -219,74 +335,157 @@ function renderStats(s){
   for(const [k,v] of Object.entries(s.classes||{})){ attempts+=v; if(k==='IP_REP') iprep=v; }
   set('k-iprep', attempts ? (iprep/attempts*100).toFixed(1)+'%' : '0%');
 
-  const where = 'http://'+(s.port||8787)+'/__ui';
-  $('where').textContent = where;
-  $('uptime').textContent = 'up '+fmtUptime(s.uptime_s||0);
-  $('pid').textContent = 'pid '+(s.pid||'?');
-  set('v-upstream', s.upstream||'');
-  set('v-proxy', s.upstream_proxy||'直连');
+  const where='http://'+(s.port||'?')+'/__ui';
+  set('where', where); set('s-where', where);
+  set('uptime','up '+fmtUptime(s.uptime_s||0)); set('s-up', fmtUptime(s.uptime_s||0));
+  set('pid','pid '+(s.pid||'?')); set('s-pid', s.pid||'?');
+  set('ver','v'+(s.version||'?')); set('s-ver','v'+(s.version||'?'));
   set('d-att', (s.attempts??0)+' / '+(s.requests??0));
   set('d-exh', s.exhausted_requests??0);
-  paused = !!(s.settings && s.settings.paused);
+  set('s-ups', s.upstream||''); set('s-proxy', s.upstream_proxy||'直连');
+
+  const paused = !!(s.settings && s.settings.paused);
   $('pauseBtn').textContent = paused ? '恢复重试' : '暂停重试';
   $('pauseBtn').classList.toggle('primary', paused);
-  set('v-state', paused ? '已暂停（只透传，不重试）' : '正常');
+  set('s-state', paused ? '已暂停（只透传，不重试）' : '正常');
 
-  const st = s.settings||{};
+  const st=s.settings||{};
   if(document.activeElement !== $('f-attempts')) $('f-attempts').value = st.attempts ?? '';
   if(document.activeElement !== $('f-timeout')) $('f-timeout').value = st.timeout ?? '';
   if(document.activeElement !== $('f-backoff')) $('f-backoff').value = (st.backoff||[]).join(',');
   $('f-route').value = st.force_route || '';
 
-  // class bars
-  const cl = s.classes||{};
-  const total = Object.values(cl).reduce((a,b)=>a+b,0) || 1;
-  const order = Object.entries(cl).sort((a,b)=>b[1]-a[1]);
+  const cl=s.classes||{};
+  const total=Object.values(cl).reduce((a,b)=>a+b,0)||1;
+  const order=Object.entries(cl).sort((a,b)=>b[1]-a[1]);
   $('classList').innerHTML = order.length ? order.map(([k,v])=>{
-    const pct = v/total*100;
+    const pct=v/total*100;
     const color = k==='OK' ? 'var(--ok)' : k==='IP_REP' ? 'var(--warn)' : 'var(--err)';
     return '<div class="cls"><div class="top"><span>'+esc(k)+'</span><span>'+v+' · '+pct.toFixed(1)+'%</span></div>'+
       '<div class="bar"><i style="width:'+pct.toFixed(1)+'%;background:'+color+'"></i></div></div>';
   }).join('') : '<span class="meta">暂无数据</span>';
 
-  // health pill
   const hp=$('health'), ht=$('healthText');
   hp.className='pill '+(s.failed_requests>0?'warn':'ok');
   ht.textContent = paused ? '已暂停' : (s.failed_requests>0 ? '有失败' : '在线');
-  const ver=$('ver'); if(ver) ver.textContent='v'+(s.version||'?');
 }
 
-function addEvent(ev){
-  live.unshift(ev); live = live.slice(0,60);
-  const tr = (ev.attempts||[]);
-  const ok = tr.length && tr[tr.length-1]==='OK';
-  const failed = tr.length && tr[tr.length-1]!=='OK';
-  const b = Math.floor(Date.now()/BUCKET_MS);
-  const cur = buckets.get(b) || {ok:0,retried:0,failed:0};
-  if(failed) cur.failed++; else if(tr.length>1) cur.retried++; else if(ok) cur.ok++;
-  buckets.set(b,cur);
-  for(const k of buckets.keys()) if(k < b-SPAN) buckets.delete(k);
-  drawChart();
-  renderRows();
+/* ----------------------------- network ---------------------------------- */
+function renderNet(n){
+  store.net = n;
+  if(!n){ return; }
+  if(!n.ok){
+    $('net-chain').innerHTML='<span class="meta">控制器不可用</span>';
+    $('net-ctl').textContent = n.reason || '–';
+    $('net-node').textContent='–';
+    $('d-node').textContent = '控制器不可用';
+    return;
+  }
+  const chain = n.chain || [];
+  $('net-chain').innerHTML = chain.length
+    ? chain.map((h,i)=>'<span class="hop'+(i===chain.length-1?' leaf':'')+'">'+esc(h)+'</span>').join('<span class="arrow">→</span>')
+    : '<span class="meta">未解析出链路</span>';
+  $('net-node').textContent = n.node || '–';
+  $('net-type').textContent = n.node_type || '–';
+  $('net-delay').innerHTML = delayCell(n.delay_ms);
+  $('net-kind').innerHTML = n.node_preferred
+    ? '<span style="color:var(--ok)">优选（家宽/住宅/原生类）</span>'
+    : '<span style="color:var(--warn)">普通中转节点，非住宅类</span>';
+  $('net-basis').textContent = (n.basis||'–') + (n.rule ? ' · ' + n.rule : '');
+  $('net-group').textContent = (n.group||'–') + ' / ' + (n.candidates||0) + ' 个候选';
+  $('net-ups').textContent = n.upstream + '  →  ' + n.proxy;
+  $('net-ctl').textContent = n.controller + (n.mode ? ' · mode=' + n.mode : '');
+  $('net-hist').textContent = (n.history||[]).map(h=>h.delay===0?'超时':(h.delay||'?')+'ms').join('  ') || '–';
+  $('d-node').innerHTML = (n.group?esc(n.group)+' → ':'') + esc(n.node||'–') + ' · ' + delayCell(n.delay_ms);
+
+  const live = n.live || [];
+  $('net-live').innerHTML = live.length ? live.map(c=>
+    '<div class="row"><span class="k" title="'+esc((c.chains||[]).join(' → '))+'">'+esc(c.host)+'</span>'+
+    '<span class="v">↑'+Math.round((c.upload||0)/1024)+'K ↓'+Math.round((c.download||0)/1024)+'K</span></div>'
+  ).join('') : '<span class="meta">暂无活动连接（代理空闲时正常）</span>';
+
+  const members = (n.members||[]).slice().sort((a,b)=>{
+    if(a.preferred !== b.preferred) return a.preferred ? -1 : 1;
+    const da = a.delay==null||a.delay===0 ? 1e9 : a.delay;
+    const db = b.delay==null||b.delay===0 ? 1e9 : b.delay;
+    return da-db;
+  });
+  $('net-rows').innerHTML = members.length ? members.map(m=>
+    '<tr><td title="'+esc(m.name)+'">'+esc(m.name)+'</td><td>'+esc(m.type||'')+'</td>'+
+    '<td>'+delayCell(m.delay)+'</td><td>'+(m.preferred?'<span style="color:var(--ok)">优选</span>':'<span class="meta">普通</span>')+'</td></tr>'
+  ).join('') : '<tr><td colspan="4" class="meta">–</td></tr>';
+
+  $('net-groups').innerHTML = (n.groups||[]).length ? n.groups.map(g=>
+    '<tr><td title="'+esc(g.name)+'">'+esc(g.name)+'</td><td title="'+esc(g.now||'')+'">'+esc(g.now||'–')+'</td><td>'+g.count+'</td></tr>'
+  ).join('') : '<tr><td colspan="3" class="meta">–</td></tr>';
 }
-function renderRows(){
-  if(!live.length){ $('rows').innerHTML='<tr><td colspan="6" class="meta">等待第一个请求…</td></tr>'; return; }
-  $('rows').innerHTML = live.map(ev=>{
+
+/* ------------------------------ logs ------------------------------------ */
+function logDetail(rec){
+  const d = rec.detail || [];
+  if(!d.length){
+    return '<div class="snip">这次记录没有尝试明细（旧版本写入的日志）。</div>';
+  }
+  return d.map(x=>{
+    const bits = [];
+    if(x.status!=null) bits.push('status='+x.status);
+    if(x.retry_after) bits.push('Retry-After='+x.retry_after+'s');
+    if(x.err) bits.push(x.err);
+    let html = '<div style="margin-bottom:6px"><b>#'+x.n+' '+esc(x.cls)+'</b>'+
+      (bits.length?' <span class="meta">'+esc(bits.join('  '))+'</span>':'');
+    if(x.snippet) html += '<div class="snip">'+esc(x.snippet)+'</div>';
+    html += '</div>';
+    return html;
+  }).join('');
+}
+
+function renderLogs(){
+  const rows = store.logs;
+  $('logCount').textContent = rows.length ? rows.length + ' 条' : '';
+  if(!rows.length){
+    $('logRows').innerHTML='<tr><td colspan="6" class="meta">没有匹配的日志</td></tr>';
+    return;
+  }
+  $('logRows').innerHTML = rows.map((ev,i)=>{
     const t=(ev.ts||'').replace('T',' ').slice(5);
     const trail=(ev.attempts||[]).map(clsTag).join(' ');
-    const ms=ev.ms!=null ? ev.ms+'ms' : '';
-    const bytes=ev.body_len!=null ? ev.body_len : '';
-    const route=ev.route==='direct' ? '直连' : 'Clash';
-    return '<tr><td>'+esc(t)+'</td><td title="'+esc(ev.model||'')+'">'+esc(ev.model||'')+'</td><td>'+trail+
-      '</td><td>'+ms+'</td><td>'+bytes+'</td><td>'+route+'</td></tr>';
+    const ok = (ev.attempts||[]).slice(-1)[0]==='OK';
+    const st = ev.status!=null ? ev.status : (ok?'200':'–');
+    let note = '';
+    const last = (ev.detail||[]).slice(-1)[0];
+    if(last && last.snippet) note = last.snippet;
+    else if(last && last.err) note = last.err;
+    else if(ev.route) note = ev.route==='direct' ? '直连' : 'Clash';
+    return '<tr class="ev" data-i="'+i+'"><td>'+esc(t)+'</td>'+
+      '<td title="'+esc(ev.model||'')+'">'+esc(ev.model||'')+'</td>'+
+      '<td>'+trail+'</td><td>'+(ev.ms!=null?ev.ms+'ms':'')+'</td>'+
+      '<td>'+esc(st)+'</td><td title="'+esc(note)+'">'+esc(note)+'</td></tr>'+
+      '<tr class="det" id="det-'+i+'" style="display:none"><td colspan="6">'+logDetail(ev)+'</td></tr>';
   }).join('');
-  if(live[0]) $('d-last').textContent = (live[0].ts||'').replace('T',' ')+' · '+(live[0].model||'');
+  $('logRows').querySelectorAll('tr.ev').forEach(tr=>{
+    tr.onclick = ()=>{ const d=$('det-'+tr.dataset.i); if(d) d.style.display = d.style.display==='none'?'table-row':'none'; };
+  });
 }
 
+async function loadLogs(){
+  const p = new URLSearchParams({limit:'300'});
+  if(store.logCls) p.set('cls', store.logCls);
+  if(store.logQ) p.set('q', store.logQ);
+  try{
+    const j = await api('/__logs?'+p.toString());
+    store.logs = j.records || [];
+    renderLogs();
+  }catch(e){
+    $('logRows').innerHTML='<tr><td colspan="6" class="meta">读取失败：'+esc(e.message)+'</td></tr>';
+  }
+}
+
+/* ----------------------------- chart ------------------------------------ */
 function drawChart(){
-  const c=$('chart'), ctx=c.getContext('2d');
+  const c=$('chart'); if(!c) return;
+  const ctx=c.getContext('2d');
   const dpr=window.devicePixelRatio||1;
-  const w=c.clientWidth, h=150;
+  const w=c.clientWidth||800, h=150;
   if(c.width!==w*dpr){ c.width=w*dpr; c.height=h*dpr; }
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,w,h);
@@ -306,34 +505,58 @@ function drawChart(){
   ctx.fillStyle='rgba(255,255,255,.18)'; ctx.fillRect(0,h-1,w,1);
 }
 
-async function load(){
-  try{
-    const s = await api('/__stats');
-    renderStats(s);
-  }catch(e){
-    $('health').className='pill err'; $('healthText').textContent='代理无响应';
-    $('v-state').textContent='连接失败：'+e.message;
+function addEvent(ev){
+  store.live.unshift(ev); store.live = store.live.slice(0,80);
+  const tr=(ev.attempts||[]);
+  const ok=tr.length && tr[tr.length-1]==='OK';
+  const failed=tr.length && tr[tr.length-1]!=='OK';
+  const b=Math.floor(Date.now()/BUCKET_MS);
+  const cur=buckets.get(b)||{ok:0,retried:0,failed:0};
+  if(failed) cur.failed++; else if(tr.length>1) cur.retried++; else if(ok) cur.ok++;
+  buckets.set(b,cur);
+  for(const k of buckets.keys()) if(k < b-SPAN) buckets.delete(k);
+  drawChart();
+  if(store.view==='logs'){
+    // Prepend without a round trip: the file already has it, but a live row
+    // shows up the moment the request ends rather than on the next poll.
+    store.logs.unshift(ev); store.logs = store.logs.slice(0,300); renderLogs();
   }
+  if(store.live[0]) $('d-last').textContent = (store.live[0].ts||'').replace('T',' ')+' · '+(store.live[0].model||'');
 }
 
-async function fire(payload){
-  const r = await fetch('/__control',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify(payload)});
-  const j = await r.json().catch(()=>({}));
-  if(!r.ok || j.ok===false) throw new Error(j.error||('HTTP '+r.status));
-  return j;
+/* ----------------------------- router ----------------------------------- */
+const VIEWS = ['overview','network','logs','settings'];
+function show(name){
+  if(!VIEWS.includes(name)) name='overview';
+  store.view = name;
+  VIEWS.forEach(v=>{
+    const el=$('v-'+v); if(el) el.classList.toggle('active', v===name);
+  });
+  document.querySelectorAll('#nav button').forEach(b=>
+    b.setAttribute('aria-current', String(b.dataset.view===name)));
+  if(name==='network') loadNet();
+  if(name==='logs') loadLogs();
+  if(name==='overview') drawChart();
 }
+function route(){
+  const h=(location.hash||'').replace(/^#\/?/,'').split('?')[0];
+  show(h||'overview');
+}
+window.addEventListener('hashchange', route);
+document.querySelectorAll('#nav button').forEach(b=>{
+  b.onclick = ()=>{ location.hash = '#/'+b.dataset.view; };
+});
 
+/* ----------------------------- controls --------------------------------- */
 async function control(payload){
-  const r = await fetch('/__control',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify(payload)});
+  const r = await fetch('/__control',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
   const j = await r.json().catch(()=>({}));
   if(!r.ok || j.ok===false) throw new Error(j.error||('HTTP '+r.status));
   await load();
   return j;
 }
-
 $('pauseBtn').onclick = async ()=>{
+  const paused = !!(store.stats && store.stats.settings && store.stats.settings.paused);
   try{ await control({action: paused?'resume':'pause'}); toast(paused?'已恢复重试':'已暂停重试'); }
   catch(e){ toast('失败：'+e.message); }
 };
@@ -342,14 +565,12 @@ $('applyBtn').onclick = async ()=>{
   const timeout=Number($('f-timeout').value||0);
   const backoff=$('f-backoff').value.split(',').map(x=>Number(x.trim())).filter(x=>x>0);
   const route=$('f-route').value;
-  try{
-    await control({action:'set', attempts, timeout, backoff, force_route: route||null});
-    toast('已应用');
-  }catch(e){ toast('失败：'+e.message); }
+  try{ await control({action:'set', attempts, timeout, backoff, force_route: route||null}); toast('已应用'); }
+  catch(e){ toast('失败：'+e.message); }
 };
 $('resetBtn').onclick = async ()=>{ try{ await control({action:'reset'}); toast('计数已清零'); }catch(e){ toast('失败：'+e.message); } };
 $('restartBtn').onclick = async ()=>{
-  if(!confirm('零停机热切换：新实例先接管 8787，再退出旧实例。继续？')) return;
+  if(!confirm('零停机热切换：新实例先接管端口，再退出旧实例。继续？')) return;
   try{ await control({action:'restart'}); toast('已发起热切换'); setTimeout(load, 2500); }
   catch(e){ toast('失败：'+e.message); }
 };
@@ -360,18 +581,41 @@ $('shutdownBtn').onclick = async ()=>{
 };
 $('stopBtn').onclick = async ()=>{
   if(!confirm('真正停掉本实例：代理和看门狗都退出，且不会被自动拉起。之后用 start-retry-proxy.bat --force 启动。继续？')) return;
-  try{ await fire({action:'stop'}); toast('已停止（看门狗不会再拉起）'); }
+  try{ await control({action:'stop'}); toast('已停止（看门狗不会再拉起）'); }
   catch(e){ toast('失败：'+e.message); }
 };
 $('copyBtn').onclick = async ()=>{
   try{
-    const s = await api('/__stats');
-    const text = JSON.stringify({stats:s, lastEvents:live.slice(0,20)}, null, 2);
+    const text = JSON.stringify({stats:store.stats, net:store.net, lastEvents:store.live.slice(0,20)}, null, 2);
     await navigator.clipboard.writeText(text);
     toast('诊断 JSON 已复制');
   }catch(e){ toast('复制失败：'+e.message); }
 };
 $('rawBtn').onclick = ()=> window.open('/__stats','_blank');
+
+document.querySelectorAll('#v-logs button[data-cls]').forEach(b=>{
+  b.onclick = ()=>{
+    store.logCls = b.dataset.cls || '';
+    document.querySelectorAll('#v-logs button[data-cls]').forEach(x=>x.classList.toggle('on', x===b));
+    loadLogs();
+  };
+});
+let qTimer=null;
+$('logQ').oninput = ()=>{ clearTimeout(qTimer); qTimer=setTimeout(()=>{ store.logQ=$('logQ').value.trim(); loadLogs(); }, 350); };
+$('logReload').onclick = ()=> loadLogs();
+
+/* ------------------------------ polling --------------------------------- */
+async function load(){
+  try{ renderStats(await api('/__stats')); }
+  catch(e){
+    $('health').className='pill err'; $('healthText').textContent='代理无响应';
+    $('s-state').textContent='连接失败：'+e.message;
+  }
+}
+async function loadNet(){
+  try{ renderNet(await api('/__net')); }
+  catch(e){ $('net-chain').innerHTML='<span class="meta">读取失败：'+esc(e.message)+'</span>'; }
+}
 
 function connect(){
   try{
@@ -381,11 +625,15 @@ function connect(){
   }catch(e){ setTimeout(connect, 6000); }
 }
 
+/* ------------------------------- boot ----------------------------------- */
+route();
 load();
-setInterval(load, 2000);
 connect();
-drawChart();
-setInterval(drawChart, 2000);
+setInterval(load, 2000);
+setInterval(()=>{ if(store.view==='network') loadNet(); }, 5000);
+setInterval(()=>{ if(store.view==='logs' && !document.hidden) loadLogs(); }, 8000);
+setInterval(()=>{ if(store.view==='overview') drawChart(); }, 2000);
+loadNet();
 </script>
 </body>
 </html>
