@@ -14,9 +14,6 @@ copy /y "%~dp0start-retry-proxy.bat" "%RUNDIR%\start-retry-proxy.bat" >nul 2>&1
 copy /y "%~dp0VERSION" "%RUNDIR%\VERSION" >nul 2>&1
 copy /y "%~dp0restart-retry-proxy.ps1" "%RUNDIR%\restart-retry-proxy.ps1" >nul 2>&1
 copy /y "%~dp0ui.html" "%RUNDIR%\ui.html" >nul 2>&1
-copy /y "%~dp0switch-instance.ps1" "%RUNDIR%\switch-instance.ps1" >nul 2>&1
-copy /y "%~dp0switch-instance.bat" "%RUNDIR%\switch-instance.bat" >nul 2>&1
-if exist "%~dp0..\..\oc-error-monitor" for %%I in ("%~dp0..\..") do > "%RUNDIR%\repo-path.txt" echo %%~fI
 if not exist "%RUNDIR%\retry_proxy.py" (
     echo  [!!] cannot stage files into "%RUNDIR%"
     exit /b 1

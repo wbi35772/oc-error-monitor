@@ -1,5 +1,9 @@
 ﻿# Start, stop or switch between the oc-error-monitor builds.
 #
+# Development only. The product builds do not switch each other: one build
+# serves one instance, and start/stop lives in launcher/. This script exists so
+# a build can be brought up and another taken down in one step while testing.
+#
 #   switch-instance.bat status            what is up, on which port
 #   switch-instance.bat start beta        start a build (clears a user stop)
 #   switch-instance.bat stop beta         stop a build for real, watchdog included

@@ -31,7 +31,7 @@ New-Item -ItemType Directory -Force $run | Out-Null
 
 $stage = @(
     'retry_proxy.py', 'supervisor.py', 'ui.html', 'port_owner.py', 'wire_retry_proxy.py',
-    'start-retry-proxy.bat', 'restart-retry-proxy.ps1', 'switch-instance.ps1', 'switch-instance.bat',
+    'start-retry-proxy.bat', 'restart-retry-proxy.ps1',
     'VERSION'
 )
 $staged = 0
@@ -40,9 +40,11 @@ foreach ($f in $stage) {
     if (Test-Path $src) { Copy-Item $src $run -Force; $staged++ }
 }
 
-# The proxy and switch-instance discover sibling builds through this file.
-[System.IO.File]::WriteAllText(
-    (Join-Path $run 'repo-path.txt'), $Repo + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+# A runtime copy older than this one may still carry repo-path.txt from when the
+# build looked up its siblings. Nothing reads it any more, and a stale file that
+# implies the build reaches into the repository is misleading.
+$stale = Join-Path $run 'repo-path.txt'
+if (Test-Path $stale) { Remove-Item $stale -Force -ErrorAction SilentlyContinue }
 
 if (-not $NoTask) {
     $bat = Join-Path $run 'start-retry-proxy.bat'

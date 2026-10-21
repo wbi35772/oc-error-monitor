@@ -1,15 +1,35 @@
 ﻿# Stop one build of oc-error-monitor and show what is left running.
-# Usage: stop.ps1 [version]
-# With no argument every build is stopped.
-param(
-    [Parameter(Position = 0)][string]$Version = '',
-    [switch]$NoPause
-)
-
+#
+# The arguments arrive through the environment, not as script parameters:
+# powershell.exe -File does not bind switch parameters, so the batch file
+# parses the command line and passes plain values this way.
 $ErrorActionPreference = 'Continue'
-$Repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+
+$Repo = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $Cfg = Join-Path $env:USERPROFILE '.config\opencode'
 
+$Version = ''
+if ($args.Count -ge 1 -and $args[0] -and (Test-Path $args[0])) {
+    $Version = (Get-Content $args[0] -Raw -ErrorAction SilentlyContinue)
+    if ($Version) { $Version = $Version.Trim() }
+}
+
+function Wait-Key {
+    # ReadKey blocks forever when no console is attached (a pipe, a tool
+    # call, a scheduled task). Only wait when a real console window exists.
+    $code = @"
+using System;
+using System.Runtime.InteropServices;
+public class Win {
+  [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+}
+"@
+    try {
+        Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue | Out-Null
+        if ([Win]::GetConsoleWindow() -eq [IntPtr]::Zero) { return }
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    } catch { }
+}
 function Get-Builds {
     Get-ChildItem $Repo -Directory -ErrorAction SilentlyContinue |
         Where-Object { Test-Path (Join-Path $_.FullName 'start-retry-proxy.bat') } |
@@ -54,14 +74,17 @@ function Show-Panel {
 }
 
 $builds = @(Get-Builds)
-if (-not $builds.Count) { Write-Host '[!!] no build under oc-error-monitor/'; exit 1 }
+if (-not $builds.Count) { Write-Host "[!!] no build under $Repo"; exit 1 }
 
-$targets = if ($Version) {
-    @($builds | Where-Object { $_.Version -like "*$Version*" })
-} else { $builds }
+$targets = @()
+if ($Version) {
+    $targets = @($builds | Where-Object { $_.Version -like "*$Version*" })
+} else {
+    $targets = @($builds)
+}
 
-if (-not $targets.Count) {
-    Write-Host "[!!] no build matching '$Version'"
+if ($targets.Count -eq 0) {
+    Write-Host "[!!] no build matching '$Version'; have: $(($builds | ForEach-Object { $_.Version }) -join ', ')"
     exit 1
 }
 
@@ -103,5 +126,5 @@ Start-Sleep -Seconds 1
 Show-Panel
 if (-not $NoPause) {
     Write-Host 'press any key to close this window...'
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    Wait-Key
 }

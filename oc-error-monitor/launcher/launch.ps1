@@ -1,14 +1,18 @@
-﻿# Shared launcher: start one build, then print a status panel the operator can
-# read in a console window. Everything is resolved from the repository, so the
-# same script works for any version directory.
-param(
-    [Parameter(Position = 0)][string]$Version = '',
-    [switch]$NoPause
-)
-
+﻿# Start one build of oc-error-monitor and print a status panel.
+#
+# The version arrives as the path of a small handover file, because
+# powershell.exe -File does not bind switch parameters and %~1 can carry a
+# trailing space that stops the version from matching a directory name.
 $ErrorActionPreference = 'Continue'
-$Repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)  # ...\oc-error-monitor
+
+$Repo = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $Cfg = Join-Path $env:USERPROFILE '.config\opencode'
+
+$Version = ''
+if ($args.Count -ge 1 -and $args[0] -and (Test-Path $args[0])) {
+    $Version = (Get-Content $args[0] -Raw -ErrorAction SilentlyContinue)
+    if ($Version) { $Version = $Version.Trim() }
+}
 
 function Get-Builds {
     Get-ChildItem $Repo -Directory -ErrorAction SilentlyContinue |
@@ -23,6 +27,23 @@ function Get-Builds {
                 RunDir  = (Join-Path $Cfg ('oc-error-monitor-v' + $ver))
             }
         }
+}
+
+function Wait-Key {
+    # ReadKey blocks forever when no console is attached (a pipe, a tool
+    # call, a scheduled task). Only wait when a real console window exists.
+    $code = @"
+using System;
+using System.Runtime.InteropServices;
+public class Win {
+  [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+}
+"@
+    try {
+        Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue | Out-Null
+        if ([Win]::GetConsoleWindow() -eq [IntPtr]::Zero) { return }
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    } catch { }
 }
 
 function Show-Panel {
@@ -49,7 +70,7 @@ function Show-Panel {
         }
     }
     Write-Host ''
-    Write-Host ('  version        state     port   pid    uptime   dashboard')
+    Write-Host '  version        state     port   pid    uptime   dashboard'
     Write-Host ('  ' + ('-' * 74))
     foreach ($r in $rows) {
         Write-Host ('  {0,-14} {1,-9} {2,-6} {3,-6} {4,-8} {5}' -f `
@@ -59,42 +80,82 @@ function Show-Panel {
 }
 
 $builds = @(Get-Builds)
-if (-not $builds.Count) { Write-Host '[!!] no build under oc-error-monitor/'; exit 1 }
+if (-not $builds.Count) { Write-Host "[!!] no build under $Repo"; exit 1 }
 
 # 'status' is an action, not a version name: the desktop shortcut that only
 # wants to look at the state must not start anything.
 if ($Version -and $Version.ToLower() -in @('status', 'list', 'show')) {
     Show-Panel
-    if (-not $NoPause) {
-        Write-Host 'press any key to close this window...'
-        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-    }
+    Write-Host 'press any key to close this window...'
+    Wait-Key
     exit 0
 }
 
 $targets = @()
 if ($Version) {
     $targets = @($builds | Where-Object { $_.Version -like "*$Version*" })
-    if (-not $targets.Count) {
-        Write-Host "[!!] no build matching '$Version'; have: $(($builds | ForEach-Object { $_.Version }) -join ', ')"
-        exit 1
-    }
 } else {
-    $targets = $builds
+    $targets = @($builds)
+}
+
+if ($targets.Count -eq 0) {
+    Write-Host "[!!] no build matching '$Version'; have: $(($builds | ForEach-Object { $_.Version }) -join ', ')"
+    exit 1
+}
+
+function Get-LivePort {
+    param($Build)
+    $pf = Join-Path $Build.RunDir 'active-port.txt'
+    if (-not (Test-Path $pf)) { return $null }
+    $p = (Get-Content $pf -Raw -ErrorAction SilentlyContinue)
+    if ($p -and $p.Trim() -match '^\d+$') { return [int]$p.Trim() }
+    return $null
+}
+
+function Test-Health {
+    param([int]$Port, [string]$Version)
+    if (-not $Port) { return $null }
+    try {
+        $h = Invoke-RestMethod ("http://127.0.0.1:$Port/__health") -TimeoutSec 2
+        if ($h.version -ne $Version) { return $null }
+        return $h
+    } catch { return $null }
 }
 
 foreach ($b in $targets) {
     Write-Host ''
-    Write-Host ("=== starting {0} ===" -f $b.Version) -ForegroundColor Cyan
+    Write-Host ("=== {0} ===" -f $b.Version) -ForegroundColor Cyan
     Write-Host ("    source : {0}" -f $b.Dir)
     Write-Host ("    runtime: {0}" -f $b.RunDir)
-    & cmd /c "`"$($b.Bat)`" --force" 2>&1 | ForEach-Object { Write-Host "    $_" }
+
+    $h = Test-Health -Port (Get-LivePort $b) -Version $b.Version
+    if ($h) {
+        Write-Host ("    already running on port {0} (pid {1})" -f (Get-LivePort $b), $h.pid) -ForegroundColor Green
+        continue
+    }
+
+    # The batch file starts the supervisor and waits for its own health probe.
+    # It is launched detached and without a pipe: its detached child inherits
+    # stdout, and a pipe here would be held open by that child forever.
+    Write-Host '    starting...'
+    Start-Process -FilePath 'cmd.exe' `
+        -ArgumentList @('/c', "`"$($b.Bat)`" --force") `
+        -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
+
+    $deadline = (Get-Date).AddSeconds(30)
+    $up = $null
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 700
+        $up = Test-Health -Port (Get-LivePort $b) -Version $b.Version
+        if ($up) { break }
+    }
+    if ($up) {
+        Write-Host ("    up on port {0} (pid {1})" -f (Get-LivePort $b), $up.pid) -ForegroundColor Green
+    } else {
+        Write-Host ("    did not come up; see {0}\supervisor.log" -f $b.RunDir) -ForegroundColor Red
+    }
 }
 
-Start-Sleep -Seconds 2
 Show-Panel
-
-if (-not $NoPause) {
-    Write-Host 'press any key to close this window...'
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-}
+Write-Host 'press any key to close this window...'
+Wait-Key
