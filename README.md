@@ -194,15 +194,30 @@ git -c http.proxy= -c https.proxy= pull
    自动分流规则、进程劫持与节点管理；现状与约束见 [`MIHOMO-BASELINE.md`](MIHOMO-BASELINE.md)，
    需要先梳理“对话状态 → 选路策略”的需求边界，再单独设计。
 
-## 会话韧性工具（`oc-error-monitor/v1.0.0/`）
+## 会话韧性工具（`oc-error-monitor/`）
 
 这部分与四个监控仓库是**另一条线**：监控仓库负责“看见”，韧性工具负责“按错误类型分层缓解”。
+
+**目录按版本分家**，每个版本自带 `VERSION` 文件和自己的文档，互不覆盖：
+
+| 目录 | 版本 | 状态 | 说明 |
+|---|---|---|---|
+| [`oc-error-monitor/v1.0.0/`](oc-error-monitor/v1.0.0/) | `1.0.0` | **线上运行中** | 请求级重试代理 + 三层看门狗，44 个模型全部经它代理 |
+| [`oc-error-monitor/v1.1.0-beta.1/`](oc-error-monitor/v1.1.0-beta.1/) | `1.1.0-beta.1` | 测试基线 | 用真 CLI 当后端的 OpenAI 兼容端点 + 隔离测试基线 + 文档工具产物 |
+
+运行副本在 `%USERPROFILE%\.config\opencode\oc-error-monitor-v1.0.0\`（目录名即项目名+版本号），
+线上进程自己会报版本：
+
+```powershell
+(Invoke-RestMethod http://127.0.0.1:8788/__health).version   # -> 1.0.0
+```
 
 | 层 | 工具 | 作用域 | 手段 |
 |---|---|---|---|
 | P1 | `monitor.py` | 只读 | 读 `opencode.db` + `main.log`，把错误分类落盘 |
 | P2 | `controller.py` | 全局 | 对网络类错误切 `🎯 OpenCode专用` 节点 |
 | P3 | `session_failover.py` | **单会话** | 只给卡住的会话换模型，不动全局网络 |
+| P4 | `retry_proxy.py` | **入口** | 请求级重试代理，线上实际生效的那一层 |
 | 测量 | `probe_matrix.py` | — | 反复实测节点/模型成功率，写 `node-scores.json` |
 | 回测 | `backtest.py` | — | **拿历史数据回放策略**，算误报率，不用等一周 |
 
