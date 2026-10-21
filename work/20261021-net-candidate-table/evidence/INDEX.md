@@ -11,3 +11,5 @@
 - E-006 | info | validated | Live probe verdicts all 216 probeable candidates | E-006.md
 - E-007 | info | validated | Production v1.1.0 on 8788 untouched by the dev deployment | E-007.md
 - E-008 | info | validated | Dashboard renders every candidate and can switch the line | E-008.md
+- E-009 | high | validated | Two whole node families are 100% dead in every run | E-009.md
+- E-010 | high | validated | Both dead families fail outside the proxy, with two distinct causes | E-010.md

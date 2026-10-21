@@ -72,10 +72,26 @@
 - evidence_ids: [E-008]
 - next: write the report and the anonymized field journal
 
-## 2026-10-21T04:30:00 | lead | report
-- action: write the report with the Evidence -> Finding -> Path chain, plus an anonymized field journal in the project case dir
-- command_or_ref: docs/2026-10-21_技术-net-candidate-table-report.md, notes/field-journal.md
-- result_summary: report references E-001..E-008 with repro commands; journal written to the project (the shared upstream field-journal mainline was deliberately not edited)
-- artifacts: [docs/2026-10-21_技术-net-candidate-table-report.md, notes/field-journal.md]
-- evidence_ids: [E-001, E-002, E-003, E-004, E-005, E-006, E-007, E-008]
+## 2026-10-21T04:33:00 | lead | analyze
+- action: summarise the probe result per node family and check it is stable rather than jitter
+- command_or_ref: family_stability.py (two full 216-node probe runs, then compare)
+- result_summary: 优选域名 66 and IPv6优选 30 are 0-alive in EVERY run, while the other four families flip only 13/216 (6.0%) between runs -- so 96 of 216 candidates (44%) are structurally dead, not unlucky timing
+- artifacts: [evidence/E-009.md]
+- evidence_ids: [E-009]
+- next: locate each dead family's cause outside the proxy
+
+## 2026-10-21T04:34:00 | lead | analyze
+- action: locate the cause of each dead family, and quantify what the old 80-row window showed
+- command_or_ref: ech_diag.py, family_diag.py, old_window.py, mihomo /configs
+- result_summary: ECH family fails the TLS handshake only with its own SNI (same IP + different SNI succeeds) -> ECH hostnames the client cannot complete; IPv6-literal family fails because the user's own script sets config.ipv6=false AND the host cannot reach public IPv6 at all. The old 80-row window held 66 dead nodes and only 9 live ones, while 53 live nodes sat outside the cut
+- artifacts: [evidence/E-010.md]
+- evidence_ids: [E-010]
+- next: record F-005/F-006 and the family health section in the report; leave the live mihomo ipv6 flag untouched
+
+## 2026-10-21T04:38:00 | lead | report
+- action: add the two new findings, the family health section and the corrected section numbering to the report
+- command_or_ref: docs/2026-10-21_技术-net-candidate-table-report.md
+- result_summary: report now carries E-001..E-010, F-001..F-006, a family health table and the before/after window comparison
+- artifacts: [docs/2026-10-21_技术-net-candidate-table-report.md]
+- evidence_ids: [E-009, E-010]
 - next: commit the report and case artifacts
