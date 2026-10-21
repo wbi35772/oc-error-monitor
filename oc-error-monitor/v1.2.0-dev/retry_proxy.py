@@ -2175,7 +2175,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif action == "point_client":
             # The client follows whichever instance is alive. The instance
             # reports its own port, so nothing here knows a port number.
-            out = point_client(reason="control")
+            # An explicit port is allowed too: it lets the client be moved
+            # between instances without moving the server.
+            want = data.get("port")
+            if want in (None, ""):
+                want = None
+            else:
+                try:
+                    want = int(want)
+                except (TypeError, ValueError):
+                    return self._send_json(
+                        {"ok": False, "error": "port must be a number"}, 400
+                    )
+                if not (1 <= want <= 65535):
+                    return self._send_json(
+                        {"ok": False, "error": "port out of range"}, 400
+                    )
+            out = point_client(port=want, reason="control")
             out["action"] = action
             out["settings"] = dict(SETTINGS)
             return self._send_json(out)

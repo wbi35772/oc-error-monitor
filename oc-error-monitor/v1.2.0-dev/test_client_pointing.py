@@ -199,6 +199,22 @@ class PointClient(ClientPointingBase):
         self.assertEqual(self._read(), first)
         self.assertEqual(retry_proxy.read_client_target()["reason"], "b")
 
+    def test_an_explicit_port_moves_the_client_elsewhere(self):
+        # The instance can point the client at another instance without the
+        # server moving: useful when a build does not have the action yet.
+        out = retry_proxy.point_client(port=8788, reason="test")
+        self.assertEqual(out["base_url"], "http://127.0.0.1:8788/v1")
+        self.assertEqual(out["port"], 8788)
+        self.assertEqual(
+            retry_proxy.read_client_target()["base_url"],
+            "http://127.0.0.1:8788/v1",
+        )
+        data = json.loads(self._read())
+        for model in data["provider"]["opencode"]["models"].values():
+            self.assertEqual(
+                model["provider"]["api"], "http://127.0.0.1:8788/v1"
+            )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
