@@ -161,6 +161,48 @@ function Show-Toast([string]$title, [string]$text) {
     } catch { }
 }
 
+function Point-Client-Fallback([int]$port) {
+    # Fallback for a build without the point_client action (v1.1.0). Without
+    # it, a switch would leave the client pointing at an instance that is
+    # being stopped - the one failure mode the client cannot recover from.
+    #
+    # The rewrite is the same one the proxy does: only the local api
+    # overrides change, and the file has to stay valid JSON.
+    $cfg = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
+    if (-not (Test-Path $cfg)) { Write-Host "[!!] no client config: $cfg"; return $false }
+    try {
+        $bytes = [IO.File]::ReadAllBytes($cfg)
+        $bom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+        $raw = [Text.Encoding]::UTF8.GetString($bytes)
+        if ($bom) { $raw = $raw.TrimStart([char]0xFEFF) }
+        $new = [regex]::Replace(
+            $raw,
+            '("api"\s*:\s*")http://127\.0\.0\.1:\d+/v1(")',
+            ('${1}http://127.0.0.1:' + $port + '/v1${2}'))
+        if ($new -eq $raw) {
+            Write-Host "[ok] client has no local api override; nothing to rewrite"
+            return $true
+        }
+        $null = $new | ConvertFrom-Json    # 不合法就不写
+        [IO.File]::WriteAllText($cfg, $new, (New-Object Text.UTF8Encoding($bom)))
+        # 状态文件也得跟着更新，否则面板会显示一个过期指向
+        $state = Join-Path $env:USERPROFILE '.config\opencode\retry-proxy-target.json'
+        $obj = [ordered]@{
+            base_url   = "http://127.0.0.1:$port/v1"
+            port       = $port
+            version    = 'unknown'
+            reason     = 'switch-instance fallback'
+            updated_at = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')
+        }
+        [IO.File]::WriteAllText($state, ($obj | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+        Write-Host "[ok] client now points at http://127.0.0.1:$port/v1 (fallback rewrite)"
+        return $true
+    } catch {
+        Write-Host "[!!] fallback rewrite failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 function Point-Client([int]$port) {
     # The client config holds one api override per model and opencode honours
     # no other form, so the port has to be written into all of them. The
@@ -169,13 +211,14 @@ function Point-Client([int]$port) {
     try {
         $r = Invoke-RestMethod ("http://127.0.0.1:$port/__control") -Method Post `
             -ContentType 'application/json' -Body '{"action":"point_client"}' -TimeoutSec 8
-        Write-Host ("[ok] 客户端已指向 http://127.0.0.1:{0}/v1（改了 {1} 处）" -f $port, $r.overrides)
+        Write-Host ("[ok] client now points at http://127.0.0.1:{0}/v1 ({1} overrides)" -f $port, $r.overrides)
         return $true
     } catch {
-        # A build without the action cannot move the client. Say so instead of
-        # leaving the user to discover a broken client later.
-        Write-Host "[!!] 该版本没有 point_client，客户端指向未更新：$($_.Exception.Message)"
-        return $false
+        # A build without the action cannot move the client, so this script
+        # does it instead. The alternative is a client pointing at an
+        # instance that is being stopped.
+        Write-Host "[..] this build has no point_client; the switcher rewrites it"
+        return (Point-Client-Fallback $port)
     }
 }
 
