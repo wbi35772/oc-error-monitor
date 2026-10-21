@@ -94,7 +94,6 @@
     <span class="meta" id="where">127.0.0.1:8787</span>
     <span class="meta" id="uptime"></span>
     <span class="meta" id="pid"></span>
-    <span class="pill" id="peer"><span class="dot"></span><span id="peerText">对端…</span></span>
     <span style="flex:1"></span>
     <button id="pauseBtn">暂停重试</button>
     <button id="restartBtn" class="primary">零停机重启</button>
@@ -149,14 +148,9 @@
         <button class="primary" id="applyBtn">应用</button>
         <button id="resetBtn">清零计数</button>
         <button class="danger" id="shutdownBtn">停止代理</button>
-      </div>
-      <div class="row"><span class="k">对端实例</span><span class="v" id="v-peer"></span></div>
-      <div class="btnrow" style="margin-top:8px">
         <button class="danger" id="stopBtn">停止本实例</button>
-        <button id="startPeerBtn">启动另一实例</button>
-        <button class="primary" id="switchBtn">切换过去</button>
       </div>
-      <div class="row" style="margin-top:10px"><span class="k">上游</span><span class="v" id="v-upstream"></span></div>
+      <div class="row"><span class="k">上游</span><span class="v" id="v-upstream"></span></div>
       <div class="row"><span class="k">代理</span><span class="v" id="v-proxy"></span></div>
       <div class="row"><span class="k">状态</span><span class="v" id="v-state"></span></div>
     </section>
@@ -330,29 +324,11 @@ async function fire(payload){
   return j;
 }
 
-async function loadPeer(){
-  try{
-    const p = await api('/__peer');
-    const main=$('peerText'), v=$('v-peer');
-    if(p.peer){
-      $('peer').className='pill ok';
-      main.textContent='对端 '+p.peer.version;
-      v.textContent = p.peer.version+' @ 127.0.0.1:'+p.peer.port+'  pid '+p.peer.pid;
-    }else{
-      $('peer').className='pill warn';
-      main.textContent='对端未运行';
-      v.textContent = '可启动: '+((p.peers||[]).map(x=>x.version).join(' / ')||'未找到对端版本目录');
-    }
-  }catch(e){ }
-}
-
 async function control(payload){
   const r = await fetch('/__control',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify(payload)});
   const j = await r.json().catch(()=>({}));
   if(!r.ok || j.ok===false) throw new Error(j.error||('HTTP '+r.status));
-loadPeer();
-setInterval(loadPeer, 3000);
   await load();
   return j;
 }
@@ -383,20 +359,10 @@ $('shutdownBtn').onclick = async ()=>{
   catch(e){ toast('失败：'+e.message); }
 };
 $('stopBtn').onclick = async ()=>{
-  if(!confirm('真正停掉本实例：代理和看门狗都退出，且不会被自动拉起。之后用另一实例的“启动另一实例”，或 switch-instance.bat 启动。继续？')) return;
+  if(!confirm('真正停掉本实例：代理和看门狗都退出，且不会被自动拉起。之后用 start-retry-proxy.bat --force 启动。继续？')) return;
   try{ await fire({action:'stop'}); toast('已停止（看门狗不会再拉起）'); }
   catch(e){ toast('失败：'+e.message); }
 };
-$('startPeerBtn').onclick = async ()=>{
-  try{ const r = await fire({action:'start_peer'}); toast('正在启动对端 '+r.version); setTimeout(loadPeer, 3000); }
-  catch(e){ toast('失败：'+e.message); }
-};
-$('switchBtn').onclick = async ()=>{
-  if(!confirm('先启动对端，确认它健康之后再停掉本实例。继续？')) return;
-  try{ await fire({action:'switch'}); toast('正在切换：对端健康后本实例退出'); setTimeout(loadPeer, 3000); }
-  catch(e){ toast('失败：'+e.message); }
-};
-
 $('copyBtn').onclick = async ()=>{
   try{
     const s = await api('/__stats');

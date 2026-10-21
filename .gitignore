@@ -29,3 +29,6 @@ __pycache__/
 /oc-error-monitor/v1.1.0-beta.1/testenv/docs_baseline/scratch/
 /oc-error-monitor/v1.1.0-beta.1/testenv/docs_baseline/before.json
 /oc-error-monitor/v1.1.0-beta.1/testenv/docs_baseline/after.json
+
+# Test harness scratch: the proxy copy and its logs are per-run artifacts.
+**/testenv/_run/
