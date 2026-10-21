@@ -3,8 +3,10 @@ rem Install a per-minute watchdog for the retry proxy, plus a hidden launcher.
 rem The proxy itself is idempotent (health check + single-instance guard), so the
 rem watchdog only has to call the same start script. Uninstall: uninstall-watchdog.bat
 setlocal
-set "TASK=OpenCode Retry Proxy"
 for /f "usebackq delims=" %%v in ("%~dp0VERSION") do set "VER=%%v"
+rem One task per version: a shared name let a test build overwrite the
+rem production watchdog, which then kept restarting the wrong instance.
+set "TASK=OpenCode Retry Proxy v%VER%"
 set "RUNDIR=%USERPROFILE%\.config\opencode\oc-error-monitor-v%VER%"
 
 if not exist "%RUNDIR%" mkdir "%RUNDIR%" 2>nul

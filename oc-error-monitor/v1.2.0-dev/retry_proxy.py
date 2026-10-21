@@ -392,6 +392,108 @@ def _mihomo(path, secret, timeout=1.8):
         return json.loads(resp.read().decode("utf-8", "replace"))
 
 
+def _mihomo_send(path, secret, method="PUT", payload=None, timeout=6.0):
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(
+        MIHOMO_API.rstrip("/") + path, data=data, method=method,
+        headers={"Accept": "application/json"},
+    )
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    if secret:
+        req.add_header("Authorization", "Bearer " + secret)
+    with _direct_opener.open(req, timeout=timeout) as resp:
+        raw = resp.read()
+    return json.loads(raw.decode("utf-8", "replace")) if raw.strip() else {}
+
+
+def net_probe(timeout_ms=5000):
+    """Measure every candidate in the live group against the upstream itself.
+
+    `/proxies` only carries whatever latency the client happened to record, and
+    for a node that is currently selected and slow that history lags badly. This
+    asks mihomo to test the whole group against opencode.ai right now, which is
+    the only number that answers "which line should this be using".
+    """
+    try:
+        timeout_ms = max(1000, min(int(timeout_ms), 15000))
+    except (TypeError, ValueError):
+        timeout_ms = 5000
+    snap = net_snapshot() or {}
+    group = snap.get("group")
+    if not group:
+        return {"ok": False, "reason": snap.get("reason") or "no group resolved",
+                "group": None, "nodes": []}
+    secret = _clash_secret()
+    query = "/group/%s/delay?url=%s&timeout=%d" % (
+        urllib.parse.quote(group, safe=""),
+        urllib.parse.quote("https://opencode.ai", safe=""),
+        timeout_ms,
+    )
+    try:
+        raw = _mihomo(query, secret, timeout=(timeout_ms / 1000.0) + 30.0)
+    except Exception as exc:
+        return {"ok": False, "group": group,
+                "reason": "%s: %s" % (type(exc).__name__, exc), "nodes": []}
+
+    current = snap.get("node")
+    rows = []
+    for name, delay in (raw or {}).items():
+        if not isinstance(delay, int):
+            continue
+        rows.append({
+            "name": name,
+            # mihomo reports the timeout value itself when the probe failed.
+            "delay": delay,
+            "dead": delay >= timeout_ms,
+            "current": name == current,
+        })
+    rows.sort(key=lambda r: (r["dead"], r["delay"]))
+    return {
+        "ok": True,
+        "group": group,
+        "node": current,
+        "timeout_ms": timeout_ms,
+        "tested": len(rows),
+        "dead": sum(1 for r in rows if r["dead"]),
+        "nodes": rows,
+    }
+
+
+def net_switch(payload, group=None):
+    """Point the group at one node, then report the chain that results."""
+    try:
+        data = json.loads(payload or b"{}")
+    except Exception:
+        return {"ok": False, "reason": "bad json"}
+    node = (data.get("node") or "").strip()
+    group = (data.get("group") or group or "").strip()
+    if not node:
+        return {"ok": False, "reason": "node is required"}
+    snap = net_snapshot() or {}
+    group = group or snap.get("group")
+    if not group:
+        return {"ok": False, "reason": snap.get("reason") or "group unknown"}
+    try:
+        _mihomo_send(
+            "/proxies/%s" % urllib.parse.quote(group, safe=""),
+            _clash_secret(), "PUT", {"name": node},
+        )
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", "replace")[:200]
+        except Exception:
+            pass
+        return {"ok": False, "group": group, "node": node,
+                "reason": "controller returned %s %s" % (exc.code, body)}
+    except Exception as exc:
+        return {"ok": False, "group": group, "node": node,
+                "reason": "%s: %s" % (type(exc).__name__, exc)}
+    _net_cache.update({"at": 0.0, "data": None})
+    return {"ok": True, "group": group, "node": node, "net": net_snapshot()}
+
+
 GROUPS = ("Selector", "URLTest", "Fallback", "Relay", "LoadBalance")
 
 
@@ -844,6 +946,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send_json(snapshot_stats())
             if path == "/__net":
                 return self._send_json(net_snapshot())
+            if path == "/__net/probe":
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                return self._send_json(net_probe((qs.get("timeout") or ["5000"])[0]))
+            if path == "/__net/switch":
+                n = int(self.headers.get("Content-Length") or 0)
+                return self._send_json(net_switch(self.rfile.read(n) if n else b""))
             if path == "/__logs":
                 qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 return self._send_json(

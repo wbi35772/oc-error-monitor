@@ -91,6 +91,7 @@
     font:600 12px var(--mono)}
   .chain .hop.leaf{border-color:#2f5f3f;background:rgba(63,185,80,.10);color:#9ae6b4}
   .chain .arrow{color:var(--dim)}
+  button.mini{padding:2px 8px;font-size:11px;border-radius:6px}
   .big{font:650 18px/1.25 var(--mono)}
   .snip{font:11.5px var(--mono);color:var(--mut);white-space:pre-wrap;word-break:break-all;
     background:#0b1017;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:4px}
@@ -191,10 +192,14 @@
       </section>
 
       <section class="card net-members">
-        <h2>策略组候选（优选在前）</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+          <h2 style="margin:0">策略组候选（优选在前）</h2>
+          <button id="probeBtn">测速全部候选</button>
+        </div>
+        <div class="meta" id="probeInfo" style="margin-bottom:6px"></div>
         <div class="scroll"><table>
-          <thead><tr><th>节点</th><th>类型</th><th>延迟</th><th>性质</th></tr></thead>
-          <tbody id="net-rows"><tr><td colspan="4" class="meta">–</td></tr></tbody>
+          <thead><tr><th>节点</th><th>类型</th><th>延迟</th><th>性质</th><th>操作</th></tr></thead>
+          <tbody id="net-rows"><tr><td colspan="5" class="meta">–</td></tr></tbody>
         </table></div>
       </section>
 
@@ -293,6 +298,7 @@ const store = {
   live: [],
   logCls: "",
   logQ: "",
+  probe: null,
   view: "overview",
 };
 const $ = (id) => document.getElementById(id);
@@ -391,7 +397,8 @@ function renderNet(n){
   $('net-kind').innerHTML = n.node_preferred
     ? '<span style="color:var(--ok)">优选（家宽/住宅/原生类）</span>'
     : '<span style="color:var(--warn)">普通中转节点，非住宅类</span>';
-  $('net-basis').textContent = (n.basis||'–') + (n.rule ? ' · ' + n.rule : '');
+  $('net-basis').textContent = (n.basis || '–') +
+    (n.rule && n.rule !== n.basis ? ' · ' + n.rule : '');
   $('net-group').textContent = (n.group||'–') + ' / ' + (n.candidates||0) + ' 个候选';
   $('net-ups').textContent = n.upstream + '  →  ' + n.proxy;
   $('net-ctl').textContent = n.controller + (n.mode ? ' · mode=' + n.mode : '');
@@ -404,16 +411,38 @@ function renderNet(n){
     '<span class="v">↑'+Math.round((c.upload||0)/1024)+'K ↓'+Math.round((c.download||0)/1024)+'K</span></div>'
   ).join('') : '<span class="meta">暂无活动连接（代理空闲时正常）</span>';
 
-  const members = (n.members||[]).slice().sort((a,b)=>{
-    if(a.preferred !== b.preferred) return a.preferred ? -1 : 1;
-    const da = a.delay==null||a.delay===0 ? 1e9 : a.delay;
-    const db = b.delay==null||b.delay===0 ? 1e9 : b.delay;
-    return da-db;
+  const probe = store.probe;
+  const pMap = probe && probe.ok
+    ? Object.fromEntries((probe.nodes || []).map(x => [x.name, x]))
+    : null;
+  const members = (n.members || []).map(m => {
+    const p = pMap && pMap[m.name];
+    return Object.assign({}, m, {
+      pdelay: p ? p.delay : null,
+      dead: p ? !!p.dead : false,
+      measured: !!p,
+    });
+  }).sort((a, b) => {
+    if (a.dead !== b.dead) return a.dead ? 1 : -1;
+    if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
+    const pick = (x) => x.pdelay != null ? x.pdelay : (x.delay == null || x.delay === 0 ? 1e9 : x.delay);
+    return pick(a) - pick(b);
   });
-  $('net-rows').innerHTML = members.length ? members.map(m=>
-    '<tr><td title="'+esc(m.name)+'">'+esc(m.name)+'</td><td>'+esc(m.type||'')+'</td>'+
-    '<td>'+delayCell(m.delay)+'</td><td>'+(m.preferred?'<span style="color:var(--ok)">优选</span>':'<span class="meta">普通</span>')+'</td></tr>'
-  ).join('') : '<tr><td colspan="4" class="meta">–</td></tr>';
+  $('net-rows').innerHTML = members.length ? members.map(m => {
+    const cell = m.dead
+      ? '<span style="color:var(--err)">超时</span>'
+      : delayCell(m.pdelay != null ? m.pdelay : m.delay);
+    const act = m.name === n.node
+      ? '<span class="meta">当前</span>'
+      : '<button class="mini" data-sw="' + esc(m.name) + '">切换</button>';
+    return '<tr><td title="' + esc(m.name) + '">' + esc(m.name) + '</td>' +
+      '<td>' + esc(m.type || '') + '</td><td>' + cell + '</td>' +
+      '<td>' + (m.preferred ? '<span style="color:var(--ok)">优选</span>' : '<span class="meta">普通</span>') + '</td>' +
+      '<td>' + act + '</td></tr>';
+  }).join('') : '<tr><td colspan="5" class="meta">–</td></tr>';
+  $('net-rows').querySelectorAll('button[data-sw]').forEach(b => {
+    b.onclick = () => switchNode(b.dataset.sw, b);
+  });
 
   $('net-groups').innerHTML = (n.groups||[]).length ? n.groups.map(g=>
     '<tr><td title="'+esc(g.name)+'">'+esc(g.name)+'</td><td title="'+esc(g.now||'')+'">'+esc(g.now||'–')+'</td><td>'+g.count+'</td></tr>'
@@ -603,6 +632,7 @@ document.querySelectorAll('#v-logs button[data-cls]').forEach(b=>{
 let qTimer=null;
 $('logQ').oninput = ()=>{ clearTimeout(qTimer); qTimer=setTimeout(()=>{ store.logQ=$('logQ').value.trim(); loadLogs(); }, 350); };
 $('logReload').onclick = ()=> loadLogs();
+$('probeBtn').onclick = ()=> probeNodes();
 
 /* ------------------------------ polling --------------------------------- */
 async function load(){
@@ -615,6 +645,49 @@ async function load(){
 async function loadNet(){
   try{ renderNet(await api('/__net')); }
   catch(e){ $('net-chain').innerHTML='<span class="meta">读取失败：'+esc(e.message)+'</span>'; }
+}
+
+async function probeNodes(){
+  const btn = $('probeBtn');
+  btn.disabled = true; btn.textContent = '测速中…';
+  $('probeInfo').textContent = '正在对 opencode.ai 逐个探测，最多约 30 秒…';
+  try{
+    const j = await api('/__net/probe?timeout=5000');
+    if(!j.ok) throw new Error(j.reason || 'failed');
+    store.probe = j;
+    const alive = (j.nodes || []).filter(x => !x.dead);
+    const best = alive[0];
+    $('probeInfo').innerHTML = '实测 ' + j.tested + ' 个 · 超时 ' + j.dead + ' 个' +
+      (best ? ' · 最快 <b>' + esc(best.name) + '</b> ' + best.delay + 'ms' : '') +
+      (j.node && j.nodes.some(x => x.current && x.dead) ? ' · <span style="color:var(--err)">当前节点已超时</span>' : '');
+    if(store.net) renderNet(store.net);
+  }catch(e){
+    $('probeInfo').textContent = '测速失败：' + e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = '测速全部候选';
+  }
+}
+
+async function switchNode(name, btn){
+  const group = (store.net && store.net.group) || '';
+  if(!confirm('把「' + group + '」切换到「' + name + '」？\n只影响命中该分组的流量（opencode.ai）。')) return;
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '切换中…';
+  try{
+    const r = await fetch('/__net/switch', {
+      method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({node:name})
+    });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.reason || ('HTTP '+r.status));
+    toast('已切换到 ' + name);
+    store.probe = null;
+    $('probeInfo').textContent = '';
+    renderNet(j.net || await api('/__net'));
+  }catch(e){
+    toast('切换失败：' + e.message);
+    btn.disabled = false; btn.textContent = old;
+  }
 }
 
 function connect(){

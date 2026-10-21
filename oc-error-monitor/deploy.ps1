@@ -4,9 +4,17 @@
 #
 # The repository holds every version under oc-error-monitor/<version>/; the
 # runtime holds exactly one deployed copy per version at
-# %USERPROFILE%\.config\opencode\oc-error-monitor-v<version>\ and the watchdog
-# task points at whichever one was deployed last. Deploying is therefore also
-# the sync step: build a new version, deploy it, and the running copy follows.
+# %USERPROFILE%\.config\opencode\oc-error-monitor-v<version>\.
+#
+# Two rules this script must never break, because a mistake here takes the
+# live proxy down and every OpenCode session with it:
+#
+#   1. A deployment touches ONE version. It restarts that version's own
+#      processes and nothing else. A test build going live must not stop the
+#      production proxy.
+#   2. The watchdog task is named per version. One shared task name meant
+#      that deploying a test build re-pointed the production watchdog at the
+#      test build, so production died silently a minute later.
 param(
     [Parameter(Mandatory = $true, Position = 0)][string]$Version,
     [switch]$NoTask,
@@ -17,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 $Base = $PSScriptRoot
 $Repo = Split-Path -Parent $Base
 $Cfg = Join-Path $env:USERPROFILE '.config\opencode'
-$Task = 'OpenCode Retry Proxy'
+$Task = "OpenCode Retry Proxy v$Version"
 
 $dir = @(Get-ChildItem $Base -Directory | Where-Object {
     $v = Join-Path $_.FullName 'VERSION'
@@ -56,13 +64,15 @@ if (-not $NoTask) {
 }
 
 if (-not $NoRestart) {
-    # Stop every other deployed build; this one is becoming production.
+    # Restart this version only. The processes are matched by their own
+    # runtime directory, so another deployed version keeps serving: stopping
+    # the production proxy to put a test build in place is exactly the kind of
+    # surprise that breaks every open session.
+    $target = [regex]::Escape($run)
     Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -match 'oc-error-monitor-v' -and
-            # Boundary match: v1.1.0 must not also match v1.1.0-beta.1.
-            $_.CommandLine -notmatch ([regex]::Escape($run) + '\\') -and
+            $_.CommandLine -match $target -and
             $_.CommandLine -match 'supervisor\.py|retry_proxy\.py'
         } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
