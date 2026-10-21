@@ -18,7 +18,7 @@
   只走环境变量配置，跑前跑后各做一次状态快照并给出 `VERDICT`，
   用它证明实验没有改动在跑的版本。
 - `docs/DOC-TOOLING.md`：文档工具选型与「带流动的动态」实现方案对比。
-- `docs/generated/`：readmeX 对 `tools/oc-error-monitor` 的真实产物。
+- `docs/generated/`：readmeX 对 `oc-error-monitor/v1.0.0` 的真实产物。
 
 ## 1.0.0 — 可用版本（`master`）
 

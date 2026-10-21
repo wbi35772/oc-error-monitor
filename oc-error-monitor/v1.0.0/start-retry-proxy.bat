@@ -11,14 +11,13 @@ rem handover leaves the new proxy unmanaged, and supervisor.py has its own lock
 rem so calling it again is free.
 setlocal
 set "PORT=8787"
-set "RUNDIR=%USERPROFILE%\.config\opencode\resilience"
+set "RUNDIR=%USERPROFILE%\.config\opencode\oc-error-monitor-v1.0.0"
 
 if not exist "%RUNDIR%" mkdir "%RUNDIR%" 2>nul
 copy /y "%~dp0retry_proxy.py" "%RUNDIR%\retry_proxy.py" >nul 2>&1
 copy /y "%~dp0supervisor.py" "%RUNDIR%\supervisor.py" >nul 2>&1
 copy /y "%~dp0ui.html" "%RUNDIR%\ui.html" >nul 2>&1
-copy /y "%~dp0..\..\..\VERSION" "%RUNDIR%\VERSION" >nul 2>&1
-if not exist "%RUNDIR%\VERSION" copy /y "%~dp0..\..\VERSION" "%RUNDIR%\VERSION" >nul 2>&1
+copy /y "%~dp0VERSION" "%RUNDIR%\VERSION" >nul 2>&1
 copy /y "%~dp0restart-retry-proxy.ps1" "%RUNDIR%\restart-retry-proxy.ps1" >nul 2>&1
 if not exist "%RUNDIR%\supervisor.py" (
     echo  [!!] cannot stage files into "%RUNDIR%"

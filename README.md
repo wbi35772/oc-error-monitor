@@ -194,7 +194,7 @@ git -c http.proxy= -c https.proxy= pull
    自动分流规则、进程劫持与节点管理；现状与约束见 [`MIHOMO-BASELINE.md`](MIHOMO-BASELINE.md)，
    需要先梳理“对话状态 → 选路策略”的需求边界，再单独设计。
 
-## 会话韧性工具（`tools/oc-error-monitor/`）
+## 会话韧性工具（`oc-error-monitor/v1.0.0/`）
 
 这部分与四个监控仓库是**另一条线**：监控仓库负责“看见”，韧性工具负责“按错误类型分层缓解”。
 
@@ -207,22 +207,22 @@ git -c http.proxy= -c https.proxy= pull
 | 回测 | `backtest.py` | — | **拿历史数据回放策略**，算误报率，不用等一周 |
 
 全部默认 dry-run，写入要显式 `--apply`。详细说明和实测数据见
-[`tools/oc-error-monitor/README.md`](tools/oc-error-monitor/README.md)，
+[`oc-error-monitor/v1.0.0/README.md`](oc-error-monitor/v1.0.0/README.md)，
 设计与证据见 [`docs/superpowers/specs/2026-10-20-opencode-session-resilience-design.md`](docs/superpowers/specs/2026-10-20-opencode-session-resilience-design.md)。
 
 ```powershell
 # 只读看错误
-python tools\oc-error-monitor\monitor.py --once --backfill 20
+python oc-error-monitor\v1.0.0\monitor.py --once --backfill 20
 
 # 测量哪个节点/模型最稳（会临时切节点，测完恢复）
-python tools\oc-error-monitor\probe_matrix.py --nodes 4 --attempts 6
+python oc-error-monitor\v1.0.0\probe_matrix.py --nodes 4 --attempts 6
 
 # 拿历史报错数据回放策略，看误报率
-python tools\oc-error-monitor\backtest.py --sweep
+python oc-error-monitor\v1.0.0\backtest.py --sweep
 
 # 只看不做：切节点 / 换模型
-python tools\oc-error-monitor\controller.py --follow
-python tools\oc-error-monitor\session_failover.py --follow
+python oc-error-monitor\v1.0.0\controller.py --follow
+python oc-error-monitor\v1.0.0\session_failover.py --follow
 ```
 
 2026-10-20 实测要点：免费模型**不需要登录任何账号**（本机无 `auth.json`、无任何 API Key 环境变量）；

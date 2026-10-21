@@ -113,7 +113,7 @@ SKIP_GROUP_TYPES = {
 
 
 def default_events_dir() -> Path:
-    # tools/oc-error-monitor/controller.py -> workspace/logs/resilience
+    # oc-error-monitor/v1.0.0/controller.py -> workspace/logs/resilience
     return Path(__file__).resolve().parents[2] / "logs" / "resilience"
 
 

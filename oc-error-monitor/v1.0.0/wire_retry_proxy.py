@@ -18,7 +18,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 CFG = os.path.expanduser(r"~\.config\opencode\opencode.json")
 CATALOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models_cache.json")
-RUNDIR = os.path.expanduser(r"~\.config\opencode\resilience")
+RUNDIR = os.path.expanduser(r"~\.config\opencode\oc-error-monitor-v1.0.0")
 ACTIVE_PORT_FILE = os.path.join(RUNDIR, "active-port.txt")
 
 DEFAULT_PORT = 8787

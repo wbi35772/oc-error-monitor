@@ -14,7 +14,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$rundir = Join-Path $env:USERPROFILE '.config\opencode\resilience'
+$rundir = Join-Path $env:USERPROFILE '.config\opencode\oc-error-monitor-v1.0.0'
 $dst = Join-Path $rundir 'retry_proxy.py'
 $ui = Join-Path $rundir 'ui.html'
 $pyw = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\pythonw.exe'
@@ -43,9 +43,10 @@ if ([System.IO.Path]::GetFullPath($here) -ne [System.IO.Path]::GetFullPath($rund
     Copy-Item (Join-Path $here 'retry_proxy.py') $dst -Force
     if (Test-Path (Join-Path $here 'ui.html')) { Copy-Item (Join-Path $here 'ui.html') $ui -Force }
     # VERSION travels with the code, so the live instance reports the build it
-    # actually came from rather than a value baked in at import time.
+    # actually came from rather than a value baked in at import time. It is
+    # read from this version's own directory: the repository root carries the
+    # version of the branch, not of the build being deployed.
     $ver = Join-Path $here 'VERSION'
-    if (-not (Test-Path $ver)) { $ver = Join-Path $here '..\..\VERSION' }
     if (Test-Path $ver) { Copy-Item $ver (Join-Path $rundir 'VERSION') -Force }
 }
 

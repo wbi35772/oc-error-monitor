@@ -60,7 +60,7 @@ if not errorlevel 1 (
     schtasks /Run /TN "OpenCode Retry Proxy" >nul 2>&1
     echo  [ok]   OpenCode retry proxy task triggered ^(127.0.0.1:8787^)
 ) else (
-    echo  [skip] OpenCode Retry Proxy task not installed - run tools\oc-error-monitor\install-watchdog.bat
+    echo  [skip] OpenCode Retry Proxy task not installed - run oc-error-monitor\v1.0.0\install-watchdog.bat
 )
 
 rem This script is elevated, so it can add the logon trigger that a normal

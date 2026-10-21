@@ -1,0 +1,45 @@
+- generic [ref=f1e3]:
+  - generic [ref=f1e4]: 零依赖 · canvas 流场
+  - heading "让文档流动起来" [level=1] [ref=f1e6]
+  - paragraph [ref=f1e7]: 背景是一张 canvas 流场：粒子沿合成向量场漂移并留下轨迹，标题用渐变位移。整页没有引入任何第三方库，动画与内容分离，内容仍然是普通的 HTML，可以直接被搜索引擎和阅读器抓到。
+  - generic [ref=f1e10]:
+    - text: 请求流 ·
+    - generic [ref=f1e11]: "0"
+    - text: 已完成 ·
+    - generic [ref=f1e12]: "0"
+    - text: ms 均值
+  - generic [ref=f1e13]:
+    - generic [ref=f1e14]:
+      - generic [ref=f1e15]: "0"
+      - generic [ref=f1e16]: 请求
+    - generic [ref=f1e17]:
+      - generic [ref=f1e18]: "0"
+      - generic [ref=f1e19]: 重试
+    - generic [ref=f1e20]:
+      - generic [ref=f1e21]: "0"
+      - generic [ref=f1e22]: 截断流
+    - generic [ref=f1e23]:
+      - generic [ref=f1e24]: "0"
+      - generic [ref=f1e25]: 恢复
+  - generic [ref=f1e26]:
+    - heading "层一：流场背景 canvas 2d" [level=2] [ref=f1e27]:
+      - text: 层一：流场背景
+      - generic [ref=f1e28]: canvas 2d
+    - paragraph [ref=f1e29]: 向量场由四组不同频率的正弦叠加而成，成本几乎为零；粒子每帧按场方向前进，并把当前位置以低透明度画回画布形成拖尾。画布尺寸跟随 devicePixelRatio，避免高分屏发虚。
+  - generic [ref=f1e30]:
+    - heading "层二：渐变位移标题 CSS background-position" [level=2] [ref=f1e31]:
+      - text: 层二：渐变位移标题
+      - generic [ref=f1e32]: CSS background-position
+    - paragraph [ref=f1e33]:
+      - text: 文字用
+      - code [ref=f1e34]: background-clip:text
+      - text: 裁出渐变，再让渐变自身缓慢移动。比逐字动画更省，也不会打断阅读节奏。
+  - generic [ref=f1e35]:
+    - heading "层三：数据流带 canvas 2d" [level=2] [ref=f1e36]:
+      - text: 层三：数据流带
+      - generic [ref=f1e37]: canvas 2d
+    - paragraph [ref=f1e38]: 一条随时间推进的横向流带，把"正在处理"这件事画出来。它是给运维看板用的：把代理的实时计数接进来即可。
+  - generic [ref=f1e39]:
+    - button "暂停动画" [ref=f1e40] [cursor=pointer]
+    - button "粒子密度 +" [ref=f1e41] [cursor=pointer]
+    - button "配色" [ref=f1e42] [cursor=pointer]

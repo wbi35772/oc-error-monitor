@@ -1,4 +1,4 @@
-﻿"""Retry proxy for the OpenCode free tier.
+"""Retry proxy for the OpenCode free tier.
 
 Why this exists
 ---------------
@@ -94,7 +94,7 @@ def _read_version():
     "which build am I" over HTTP instead of by directory name.
 
     Two layouts have to work: the repository (VERSION two levels up from
-    tools/oc-error-monitor) and the staged runtime directory (VERSION beside
+    oc-error-monitor/v1.0.0) and the staged runtime directory (VERSION beside
     the script). So the lookup walks up instead of assuming one shape."""
     here = HERE
     for _ in range(5):

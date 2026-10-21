@@ -42,19 +42,19 @@
 一次性看最近 20 条错误：
 
 ```powershell
-python tools\oc-error-monitor\monitor.py --once --backfill 20
+python oc-error-monitor\v1.0.0\monitor.py --once --backfill 20
 ```
 
 持续监控（默认每 2 秒）：
 
 ```powershell
-python tools\oc-error-monitor\monitor.py --follow
+python oc-error-monitor\v1.0.0\monitor.py --follow
 ```
 
 指定路径/间隔：
 
 ```powershell
-python tools\oc-error-monitor\monitor.py --follow `
+python oc-error-monitor\v1.0.0\monitor.py --follow `
   --db "$env:USERPROFILE\.local\share\opencode\opencode.db" `
   --log "$env:APPDATA\OpenChamber\logs\main.log" `
   --interval 2
@@ -63,7 +63,7 @@ python tools\oc-error-monitor\monitor.py --follow `
 运行分类器测试：
 
 ```powershell
-python tools\oc-error-monitor\test_classify.py
+python oc-error-monitor\v1.0.0\test_classify.py
 ```
 
 ## 输出
@@ -271,10 +271,10 @@ DIRECT 路径 5 次全部 403（真·封禁），这条结论仍然成立。
 
 ```powershell
 # 回放当前策略，输出误报率
-python tools\oc-error-monitor\backtest.py
+python oc-error-monitor\v1.0.0\backtest.py
 
 # 顺便扫一遍阈值
-python tools\oc-error-monitor\backtest.py --sweep
+python oc-error-monitor\v1.0.0\backtest.py --sweep
 ```
 
 **判定标准**：每个错误看它**下一次尝试**的结果。
@@ -434,16 +434,16 @@ opencode CLI ──► 127.0.0.1:8787 ──► mihomo(7899) ──► opencode.
 
 ```powershell
 # 启动 / 幂等
-tools\oc-error-monitor\start-retry-proxy.bat
+oc-error-monitor\v1.0.0\start-retry-proxy.bat
 
 # 带停机测量地重启
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\oc-error-monitor\restart-retry-proxy.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File oc-error-monitor\v1.0.0\restart-retry-proxy.ps1
 
 # 看统计
 Invoke-RestMethod http://127.0.0.1:8787/__stats | ConvertTo-Json
 
 # 装/卸每分钟看门狗
-tools\oc-error-monitor\install-watchdog.bat
+oc-error-monitor\v1.0.0\install-watchdog.bat
 schtasks /Delete /TN "OpenCode Retry Proxy" /F
 ```
 
@@ -476,7 +476,7 @@ provider.<id>.models.<model>.provider.api  ✅ 有效（44 个 free 模型都指
 `testenv/test_retry_proxy.py` 用它跑 14 个场景 / 48 项断言：
 
 ```powershell
-python tools\oc-error-monitor\testenv\test_retry_proxy.py
+python oc-error-monitor\v1.0.0\testenv\test_retry_proxy.py
 # 48/48 checks passed
 ```
 
@@ -526,8 +526,8 @@ Windows 的 socket 默认带 `SO_REUSEADDR`，**允许直接绑定别人正在�
 直接问系统「这个端口归谁」，发现是别人的就**换到下一个端口**：
 
 ```powershell
-python tools\oc-error-monitor\port_owner.py          # 全部监听端口 + 归属进程
-python tools\oc-error-monitor\port_owner.py 8787 8788
+python oc-error-monitor\v1.0.0\port_owner.py          # 全部监听端口 + 归属进程
+python oc-error-monitor\v1.0.0\port_owner.py 8787 8788
 ```
 
 代理把实际使用的端口写进 `active-port.txt`，supervisor 读到端口变了就
@@ -537,7 +537,7 @@ python tools\oc-error-monitor\port_owner.py 8787 8788
 ## 零停机热切换
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\oc-error-monitor\restart-retry-proxy.ps1 -Handover
+powershell -NoProfile -ExecutionPolicy Bypass -File oc-error-monitor\v1.0.0\restart-retry-proxy.ps1 -Handover
 ```
 
 流程：新实例先在同一个端口上起来（socket 不断）→ 通过**文件**请求旧实例排空退出
@@ -560,11 +560,11 @@ YAML 里单引号标量内部的 `'` 要写成两个：`ticket''s`。
 
 ```powershell
 # 扫描所有技能
-python tools\oc-error-monitor\check_skill_frontmatter.py
+python oc-error-monitor\v1.0.0\check_skill_frontmatter.py
 
 # 修复（先 --dry-run 看一遍，会留 .bak）
-python tools\oc-error-monitor\fix_skill_frontmatter.py "<SKILL.md>" --dry-run
-python tools\oc-error-monitor\fix_skill_frontmatter.py "<SKILL.md>"
+python oc-error-monitor\v1.0.0\fix_skill_frontmatter.py "<SKILL.md>" --dry-run
+python oc-error-monitor\v1.0.0\fix_skill_frontmatter.py "<SKILL.md>"
 ```
 
 ## P3：每会话换模型（已实施）
@@ -582,16 +582,16 @@ POST /api/session/{sessionID}/model
 
 ```powershell
 # 看当前有哪些免费模型
-python tools\oc-error-monitor\session_failover.py --list-models
+python oc-error-monitor\v1.0.0\session_failover.py --list-models
 
 # 看每个会话现在用的模型
-python tools\oc-error-monitor\session_failover.py --list-sessions
+python oc-error-monitor\v1.0.0\session_failover.py --list-sessions
 
 # 只看不做
-python tools\oc-error-monitor\session_failover.py --follow
+python oc-error-monitor\v1.0.0\session_failover.py --follow
 
 # 真的换
-python tools\oc-error-monitor\session_failover.py --follow --apply
+python oc-error-monitor\v1.0.0\session_failover.py --follow --apply
 ```
 
 已验证（真实会话 `ses_ea677e001ffewY0FlRW2nG5lAY`）：
@@ -613,7 +613,7 @@ OpenChamber 给托管 OpenCode 生成的密码只在内存里（每次启动轮�
 `read_proc_env.py` 从 OpenChamber 进程环境里读 `OPENCODE_SERVER_PASSWORD`：
 
 ```powershell
-python tools\oc-error-monitor\read_proc_env.py 17680 OPENCODE_SERVER_PASSWORD
+python oc-error-monitor\v1.0.0\read_proc_env.py 17680 OPENCODE_SERVER_PASSWORD
 ```
 
 也可以手动指定：

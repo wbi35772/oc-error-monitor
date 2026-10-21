@@ -1,11 +1,11 @@
-﻿"""Offline test suite for retry_proxy.py.
+"""Offline test suite for retry_proxy.py.
 
 Everything runs inside this project:
   * the upstream is mock_gateway.py on loopback
-  * the proxy runs from tools/oc-error-monitor/testenv/_run/ with its own logs
+  * the proxy runs from oc-error-monitor/v1.0.0/testenv/_run/ with its own logs
   * no Clash Verge, no real gateway, no live network
 
-Run:  python tools/oc-error-monitor/testenv/test_retry_proxy.py
+Run:  python oc-error-monitor/v1.0.0/testenv/test_retry_proxy.py
 """
 import http.client
 import json

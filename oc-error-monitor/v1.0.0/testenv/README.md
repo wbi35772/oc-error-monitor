@@ -3,7 +3,7 @@
 Everything here runs on loopback inside this project. No Clash Verge, no real
 gateway, no live network, no config file of yours is touched.
 
-    python tools/oc-error-monitor/testenv/test_retry_proxy.py
+    python oc-error-monitor/v1.0.0/testenv/test_retry_proxy.py
 
 ## mock_gateway.py
 

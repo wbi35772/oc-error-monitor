@@ -47,8 +47,8 @@
 
 ### 实施状态（2026-10-20）
 
-- **P1 已实施**：`tools/oc-error-monitor/monitor.py`，只读轮询 `opencode.db` + tail `main.log`，输出 JSONL；`test_classify.py` 8/8 通过。
-- **P2 已实施**：`tools/oc-error-monitor/controller.py`，tail P1 JSONL，默认 dry-run；`test_controller.py` **24/24 通过**。
+- **P1 已实施**：`oc-error-monitor/v1.0.0/monitor.py`，只读轮询 `opencode.db` + tail `main.log`，输出 JSONL；`test_classify.py` 8/8 通过。
+- **P2 已实施**：`oc-error-monitor/v1.0.0/controller.py`，tail P1 JSONL，默认 dry-run；`test_controller.py` **24/24 通过**。
   - 节点排序改为优先读 `logs/resilience/node-scores.json`（实测成功率），延迟只作存活过滤。
   - mihomo 缓存的 `alive` 标志会滞后：有实测分数的节点即使被标记 dead 也保留在候选里，
     但仍需通过实时健康探测才会被切过去。
@@ -63,22 +63,22 @@
   - `--self-test`：`PUT '🎯 OpenCode专用' -> 当前节点` 返回 HTTP 204，写路径可用且不改变选择。
   - 临时事件回放：`NET_STREAM -> WOULD_SWITCH 联通-02 -> 多线-01`；
     `AUTH_IP_REPUTATION -> NOOP（交给 P3）`。
-- **实测工具**：`tools/oc-error-monitor/probe_matrix.py` —— 逐节点/逐模型测量成功率，
+- **实测工具**：`oc-error-monitor/v1.0.0/probe_matrix.py` —— 逐节点/逐模型测量成功率，
   同时记录 gstatic 延迟用于对比；结果写入 `logs/resilience/node-scores.json` 供控制器使用。
-- **P3 已实施**：`tools/oc-error-monitor/session_failover.py` —— 只给卡住的会话换模型。
+- **P3 已实施**：`oc-error-monitor/v1.0.0/session_failover.py` —— 只给卡住的会话换模型。
   - 真实会话验证：`POST /api/session/{id}/model` 返回 HTTP 204，会话模型从
     `opencode/deepseek-v4.1-flash-free` 变为 `openrouter/minimax/minimax-m3.1-flash:free`，复查确认生效。
   - 认证：OpenChamber 生成的托管密码只在内存里（每次启动轮换），用 `read_proc_env.py`
     从 OpenChamber 进程环境读 `OPENCODE_SERVER_PASSWORD`，全程不落盘。
 - **P2/P3 默认都是 dry-run**，任何写操作都要显式 `--apply`。
-- **P4 已实施**（2026-10-20）：请求层重试代理 `tools/oc-error-monitor/retry_proxy.py`
+- **P4 已实施**（2026-10-20）：请求层重试代理 `oc-error-monitor/v1.0.0/retry_proxy.py`
   （127.0.0.1:8787），把 IP 信誉 403 / 429 / 5xx / 空流在**单次请求内**救回。
   - 前提：抓包证明「身份闸 403」与「IP 信誉 403」必须分开，前者由请求形状决定，后者逐请求随机。
   - 代理原样透传客户端请求（保住身份闸），只在尚未写出任何字节时重试。
   - 44 个 free 模型已通过 `provider.<id>.models.<model>.provider.api` 指向代理。
   - 常驻：计划任务（每分钟）→ `start-retry-proxy.bat` → `supervisor.py` → `retry_proxy.py`；
     崩溃自愈 3.2 秒，单实例用文件锁（Windows `SO_REUSEADDR` 不可靠）。
-  - 隔离测试环境 `tools/oc-error-monitor/testenv/`：mock 网关 + 26 断言全绿，不碰 Clash、不碰真网关。
+  - 隔离测试环境 `oc-error-monitor/v1.0.0/testenv/`：mock 网关 + 26 断言全绿，不碰 Clash、不碰真网关。
   - 详见第 8 节 P4。
 
 ## 1. 已确认的事实与证据
@@ -519,7 +519,7 @@ P1–P3 都发生在**会话之后**。抓包证明有一类错误在**单次请
 `P(ok|上次失败)=3/4`；3 次内恢复 4/5；最长连续失败 2。
 => IP 信誉 403 是逐请求瞬时错误，请求层重试足够，不需要换节点/换模型/改会话。
 
-**代理行为**（`tools/oc-error-monitor/retry_proxy.py`，127.0.0.1:8787 → mihomo 7899 → 网关）：
+**代理行为**（`oc-error-monitor/v1.0.0/retry_proxy.py`，127.0.0.1:8787 → mihomo 7899 → 网关）：
 
 - 200 → `read1` 无缓冲流式透传；
 - 200 但空流 → 重试（此时还没写给客户端任何字节）；
@@ -538,7 +538,7 @@ P1–P3 都发生在**会话之后**。抓包证明有一类错误在**单次请
 崩溃自愈实测 3.2 秒；手动重启实测停机 2.9 秒（`restart-retry-proxy.ps1` 会打印该时长）。
 
 **验收证据**：
-- 隔离测试环境 `tools/oc-error-monitor/testenv/`：mock 网关 + 8 场景 / 26 断言全绿，
+- 隔离测试环境 `oc-error-monitor/v1.0.0/testenv/`：mock 网关 + 8 场景 / 26 断言全绿，
   不碰 Clash、不碰真网关；
 - 线上：10 次 `opencode run` 全成功；16 请求 / 25 尝试 / 7 次需重试 / 7 次救回 / 0 耗尽。
 
