@@ -81,6 +81,9 @@ UPSTREAM_PROXY = os.environ.get(
 MAX_ATTEMPTS = max(1, int(os.environ.get("RETRY_PROXY_ATTEMPTS", "4")))
 SOCK_TIMEOUT = float(os.environ.get("RETRY_PROXY_TIMEOUT", "120"))
 BACKOFF = [0.4, 1.0, 1.8, 3.0, 4.5]
+# A rate limit needs more patience than a transient 403: the gateway is asking
+# us to slow down, not to try again in a fraction of a second.
+RATE_BACKOFF = [2.0, 5.0, 9.0, 15.0, 25.0]
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "retry_proxy.log.jsonl")
 ACTIVE_PORT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "active-port.txt")
@@ -225,9 +228,12 @@ def should_retry(cls, status):
     return status in RETRY_STATUS
 
 
-def backoff(attempt):
-    seq = SETTINGS["backoff"] or BACKOFF
-    delay = seq[min(attempt, len(seq) - 1)]
+def backoff(attempt, cls=None):
+    if cls == "RATE":
+        delay = RATE_BACKOFF[min(attempt, len(RATE_BACKOFF) - 1)]
+    else:
+        seq = SETTINGS["backoff"] or BACKOFF
+        delay = seq[min(attempt, len(seq) - 1)]
     return delay * (0.85 + random.random() * 0.3)
 
 
@@ -485,7 +491,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         except Exception:
                             pass
                         if attempt + 1 < max_attempts:
-                            time.sleep(backoff(attempt))
+                            time.sleep(backoff(attempt, "EMPTY_STREAM"))
                             continue
                         break
                     trail.append("OK")
@@ -497,7 +503,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 trail.append(cls)
                 last_status = status
                 if attempt + 1 < max_attempts and should_retry(cls, status):
-                    time.sleep(backoff(attempt))
+                    time.sleep(backoff(attempt, cls))
                     continue
                 break
             except urllib.error.HTTPError as e:
@@ -509,7 +515,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cls = classify(last_status, last_body)
                 trail.append(cls)
                 if attempt + 1 < max_attempts and should_retry(cls, last_status):
-                    time.sleep(backoff(attempt))
+                    time.sleep(backoff(attempt, cls))
                     continue
                 break
             except Exception as e:
@@ -520,10 +526,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     # mihomo is down or its port moved: stop paying for it.
                     route_direct = True
                     trail.append("ROUTE:direct")
-                    time.sleep(backoff(attempt))
+                    time.sleep(backoff(attempt, "ERR"))
                     continue
                 if attempt + 1 < max_attempts:
-                    time.sleep(backoff(attempt))
+                    time.sleep(backoff(attempt, "ERR"))
                     continue
                 break
 
