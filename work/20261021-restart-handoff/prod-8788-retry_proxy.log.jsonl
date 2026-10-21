@@ -1,0 +1,345 @@
+{"ts": "2026-10-21T00:47:52", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 33202, "body_len": 533922, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:48:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 2434, "body_len": 9920, "model": "deepseek-v4-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:48:25", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "OK"], "ms": 32674, "body_len": 494029, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:49:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "ERR:RemoteDisconnected", "ERR:RemoteDisconnected", "OK"], "ms": 69563, "body_len": 496352, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:49:59", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "OK"], "ms": 23049, "body_len": 507073, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:50:17", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 18218, "body_len": 509236, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:50:46", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 28704, "body_len": 510293, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:51:26", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 36581, "body_len": 518194, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:51:49", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 22470, "body_len": 522244, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:52:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13702, "body_len": 491401, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:52:59", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 55531, "body_len": 493490, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:53:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 18879, "body_len": 504285, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:53:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "ERR:RemoteDisconnected", "ERR:RemoteDisconnected", "RATE"], "ms": 12400, "body_len": 932870, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:53:46", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 27633, "body_len": 506939, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:54:22", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "OK"], "ms": 36096, "body_len": 511059, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:54:46", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 24476, "body_len": 516790, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:55:10", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 23029, "body_len": 521964, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:55:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 25164, "body_len": 523398, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:55:56", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 20299, "body_len": 527431, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:56:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 31251, "body_len": 530103, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:56:47", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19052, "body_len": 490253, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:57:12", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 25434, "body_len": 491838, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:57:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 18393, "body_len": 494844, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:58:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "OK"], "ms": 30029, "body_len": 496752, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:58:46", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "RATE", "RATE", "ERR:RemoteDisconnected"], "ms": 44211, "body_len": 500364, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:59:01", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13098, "body_len": 500364, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:59:22", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 19956, "body_len": 501791, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:59:42", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19904, "body_len": 503550, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T00:59:59", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16609, "body_len": 507736, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:00:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 32710, "body_len": 512783, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:01:41", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 68097, "body_len": 518073, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:02:07", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 25932, "body_len": 450851, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:02:38", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 30391, "body_len": 455089, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:04:25", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11317, "body_len": 458437, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:06:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 23829, "body_len": 460608, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:07:17", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 36819, "body_len": 463567, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:07:47", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 26836, "body_len": 466439, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:08:39", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 50905, "body_len": 472734, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:08:59", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 20027, "body_len": 481368, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:12:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7780, "body_len": 483516, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:12:52", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 33294, "body_len": 485086, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:13:01", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9056, "body_len": 487761, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:15:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "RATE", "OK"], "ms": 24354, "body_len": 490313, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:17:36", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 64572, "body_len": 493372, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:17:52", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "OK"], "ms": 15022, "body_len": 496831, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:18:30", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 35713, "body_len": 496465, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:19:33", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "OK"], "ms": 53542, "body_len": 498907, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:20:05", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 30313, "body_len": 503248, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:21:34", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "OK"], "ms": 87731, "body_len": 506681, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:22:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1533, "body_len": 14363, "model": "deepseek-v4-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:22:39", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 22836, "body_len": 1150530, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:23:03", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "OK"], "ms": 19169, "body_len": 1163485, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:23:24", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 17663, "body_len": 1171348, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:45:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "RATE", "RATE", "RATE"], "ms": 41479, "body_len": 1176715, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:46:46", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "RATE"], "ms": 43976, "body_len": 1176715, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:48:57", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6223, "body_len": 2377, "model": "big-pickle", "route": "proxy"}
+{"ts": "2026-10-21T01:49:03", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "ERR:RemoteDisconnected", "OK"], "ms": 11993, "body_len": 151807, "model": "big-pickle", "route": "proxy"}
+{"ts": "2026-10-21T01:49:41", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "OK"], "ms": 67121, "body_len": 1176715, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:50:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "RATE", "OK"], "ms": 34117, "body_len": 1184937, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:51:30", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "ERR:RemoteDisconnected"], "ms": 48415, "body_len": 1192636, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:52:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "ERR:RemoteDisconnected"], "ms": 46421, "body_len": 1203190, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:53:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "ERR:URLError"], "ms": 55421, "body_len": 1201862, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:54:01", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "ERR:RemoteDisconnected", "RATE", "RATE"], "ms": 36131, "body_len": 1201862, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:56:09", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "RATE", "RATE", "RATE"], "ms": 57424, "body_len": 1201937, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T01:58:07", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "RATE"], "ms": 77696, "body_len": 1201739, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T02:06:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "ERR:RemoteDisconnected", "RATE"], "ms": 42844, "body_len": 822217, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T02:07:51", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "ERR:RemoteDisconnected", "RATE", "ERR:RemoteDisconnected"], "ms": 42280, "body_len": 617249, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T02:08:15", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "RATE"], "ms": 41516, "body_len": 1202950, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T02:08:49", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "ERR:RemoteDisconnected", "RATE", "RATE"], "ms": 55634, "body_len": 617249, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T02:10:12", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:RemoteDisconnected", "ERR:RemoteDisconnected", "ERR:RemoteDisconnected", "RATE"], "ms": 39253, "body_len": 1202950, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T02:10:45", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10535, "body_len": 1202950, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:11:00", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13076, "body_len": 1205658, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:11:10", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9977, "body_len": 1208958, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:11:29", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 17946, "body_len": 1213129, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:11:39", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9417, "body_len": 442873, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:11:54", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10252, "body_len": 446680, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:12:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9061, "body_len": 449798, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:12:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19403, "body_len": 452271, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:12:52", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12138, "body_len": 461561, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:13:39", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16672, "body_len": 465651, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:14:43", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 759, "body_len": 6709, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:26:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 113785, "body_len": 658434, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:26:58", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 36811, "body_len": 284690, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:27:04", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5333, "body_len": 291446, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:31:15", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8644, "body_len": 292381, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:31:22", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5464, "body_len": 294535, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:31:43", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 21569, "body_len": 300428, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:31:56", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12679, "body_len": 306233, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:32:07", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10188, "body_len": 309324, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:32:19", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6899, "body_len": 310531, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:32:51", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 18402, "body_len": 311787, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:33:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10598, "body_len": 315512, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:33:07", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4083, "body_len": 320740, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:33:29", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 22179, "body_len": 323759, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:33:45", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 15857, "body_len": 328123, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:33:55", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9529, "body_len": 331523, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:33:58", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 2622, "body_len": 332777, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:34:11", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12529, "body_len": 334657, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:34:24", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13022, "body_len": 336975, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:34:34", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9149, "body_len": 339229, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:34:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5415, "body_len": 341189, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:34:50", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9489, "body_len": 344273, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:34:53", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3048, "body_len": 349450, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:35:19", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 26103, "body_len": 353730, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:35:33", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13458, "body_len": 361304, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:35:47", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13387, "body_len": 364848, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:35:54", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6831, "body_len": 371332, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:36:05", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11440, "body_len": 374023, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:36:19", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13066, "body_len": 376531, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:36:26", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6069, "body_len": 378386, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:36:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8754, "body_len": 382059, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:36:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4959, "body_len": 386338, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:36:54", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 14211, "body_len": 390932, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:36:58", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3479, "body_len": 398578, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:37:20", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 21232, "body_len": 402029, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:37:47", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 27256, "body_len": 405469, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:37:55", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8312, "body_len": 413544, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:38:04", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8571, "body_len": 414809, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:38:20", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16036, "body_len": 416283, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:38:26", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5268, "body_len": 423349, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:38:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11098, "body_len": 424437, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:38:41", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3786, "body_len": 425529, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:38:49", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6785, "body_len": 426336, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:38:59", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10080, "body_len": 427002, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:39:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3892, "body_len": 428984, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:39:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9384, "body_len": 429828, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:40:09", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 38573, "body_len": 433305, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:41:04", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 54103, "body_len": 443557, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:41:12", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7892, "body_len": 457302, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:41:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8141, "body_len": 458529, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:41:49", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10418, "body_len": 459788, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:42:03", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13452, "body_len": 461953, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:42:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 32158, "body_len": 484250, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:42:43", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7473, "body_len": 489658, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:42:47", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3816, "body_len": 490449, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:42:51", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4087, "body_len": 491588, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:45:14", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 141866, "body_len": 492248, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:46:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 43900, "body_len": 502462, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:47:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 125496, "body_len": 494492, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:48:42", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 130933, "body_len": 514582, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:50:49", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 125677, "body_len": 516279, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:51:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12281, "body_len": 551691, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:52:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 53245, "body_len": 554252, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:52:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 18375, "body_len": 228703, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:52:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8127, "body_len": 230805, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:52:54", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13332, "body_len": 232886, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:53:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 22341, "body_len": 238296, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:53:33", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11912, "body_len": 242054, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:53:52", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9092, "body_len": 245211, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:53:55", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3336, "body_len": 248601, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:54:03", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6931, "body_len": 251893, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:54:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16605, "body_len": 254125, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:54:38", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16651, "body_len": 257651, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:55:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 14377, "body_len": 260834, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:55:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12770, "body_len": 264542, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:55:53", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5101, "body_len": 266632, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:56:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8566, "body_len": 269834, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:56:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10805, "body_len": 270543, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:56:23", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10155, "body_len": 271008, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:56:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3014, "body_len": 272247, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:56:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7087, "body_len": 273501, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:56:44", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6313, "body_len": 274708, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:56:54", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9195, "body_len": 276324, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:57:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11923, "body_len": 278641, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:57:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12544, "body_len": 335188, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:57:41", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9617, "body_len": 337400, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:57:50", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5295, "body_len": 338963, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:57:58", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7184, "body_len": 339693, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:58:24", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19117, "body_len": 340781, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:58:38", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 13302, "body_len": 346536, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:58:54", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 15414, "body_len": 350927, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:59:15", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19623, "body_len": 354325, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T02:59:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6590, "body_len": 357642, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:07:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "ERR:RemoteDisconnected", "RATE"], "ms": 46830, "body_len": 690354, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T03:07:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11680, "body_len": 690354, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:08:00", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 18719, "body_len": 692900, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:08:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19647, "body_len": 696002, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:09:11", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 41535, "body_len": 699782, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:09:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6729, "body_len": 512014, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:09:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 18628, "body_len": 521759, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:10:00", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 23166, "body_len": 527052, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:13:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 36256, "body_len": 532858, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:13:48", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8336, "body_len": 505897, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:14:03", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 14543, "body_len": 509054, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:14:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 23130, "body_len": 510845, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:14:51", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 15897, "body_len": 519088, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:14:59", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7609, "body_len": 510443, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:19:04", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "ERR:URLError"], "ms": 34037, "body_len": 512085, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T03:19:36", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "ERR:URLError", "ERR:URLError", "ERR:URLError"], "ms": 38465, "body_len": 743678, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T03:20:01", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "ERR:URLError", "ERR:URLError", "ERR:URLError"], "ms": 23241, "body_len": 752848, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T03:20:26", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 20419, "body_len": 752848, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:21:29", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 43339, "body_len": 494823, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:21:46", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 17421, "body_len": 324562, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:22:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 31907, "body_len": 331449, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:22:45", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7324, "body_len": 334990, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:23:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 27158, "body_len": 337629, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:23:25", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6802, "body_len": 343086, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:23:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7020, "body_len": 345976, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:23:45", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6815, "body_len": 349503, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:23:55", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10465, "body_len": 353468, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:24:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 24925, "body_len": 358338, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:24:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10139, "body_len": 364816, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:24:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4047, "body_len": 366319, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:24:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4244, "body_len": 366995, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:25:17", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 36206, "body_len": 368136, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:25:26", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8770, "body_len": 374564, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:25:41", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 15401, "body_len": 375187, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:25:49", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7328, "body_len": 378775, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:26:04", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 14190, "body_len": 379828, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:26:11", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6748, "body_len": 382538, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:26:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 26227, "body_len": 383445, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T03:36:27", "method": "GET", "path": "/zzz-not-a-route", "attempts": ["HTTP404"], "ms": 1588, "body_len": 0, "model": null, "route": "proxy"}
+{"ts": "2026-10-21T03:57:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "OK"], "ms": 5931, "body_len": 2470, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T03:57:15", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7361, "body_len": 158515, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T03:57:50", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "RATE"], "ms": 26205, "body_len": 164765, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T03:59:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "ERR:URLError", "ERR:URLError", "ERR:URLError"], "ms": 33915, "body_len": 164840, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T03:59:24", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "ERR:URLError", "RATE", "RATE"], "ms": 20129, "body_len": 164840, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T04:05:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["RATE", "RATE", "RATE", "RATE", "RATE", "RATE", "RATE", "RATE", "RATE", "RATE"], "ms": 177912, "body_len": 164840, "model": "deepseek-v4.1-flash-free", "route": "proxy"}
+{"ts": "2026-10-21T04:09:25", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 18750, "body_len": 164840, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:09:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6019, "body_len": 172723, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:09:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4834, "body_len": 175357, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:09:42", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4886, "body_len": 176705, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:10:25", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12870, "body_len": 182885, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:10:38", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10484, "body_len": 189812, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:10:47", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6525, "body_len": 194853, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:10:55", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6114, "body_len": 197175, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:11:04", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5407, "body_len": 198694, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:11:10", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4525, "body_len": 200813, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:11:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10925, "body_len": 201625, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:11:33", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12018, "body_len": 206788, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:11:45", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11352, "body_len": 213500, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:11:52", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7491, "body_len": 218598, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:12:01", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8327, "body_len": 220757, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:12:09", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8482, "body_len": 221954, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:12:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4764, "body_len": 224301, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:13:36", "method": "GET", "path": "/zzz-not-a-route", "attempts": ["HTTP404"], "ms": 723, "body_len": 0, "model": null, "route": "direct"}
+{"ts": "2026-10-21T04:14:20", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5660, "body_len": 225471, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:16:26", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5470, "body_len": 247036, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:16:33", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4701, "body_len": 248809, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:17:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8990, "body_len": 253254, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:17:38", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6339, "body_len": 258273, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:18:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16414, "body_len": 261253, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:18:42", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6683, "body_len": 271867, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:18:50", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4471, "body_len": 274990, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:18:55", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5199, "body_len": 276161, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:19:03", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7448, "body_len": 278592, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:20:06", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 780, "body_len": 4326, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:27:15", "method": "GET", "path": "/zzz-not-a-route", "attempts": ["HTTP404"], "ms": 1922, "body_len": 0, "model": null, "route": "direct"}
+{"ts": "2026-10-21T04:27:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6787, "body_len": 280853, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:27:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4480, "body_len": 282941, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:27:58", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 26114, "body_len": 284370, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:28:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 15074, "body_len": 285370, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:28:36", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 22425, "body_len": 292243, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:28:42", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5895, "body_len": 293911, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:29:45", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 747, "body_len": 5589, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:30:24", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 18925, "body_len": 295939, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:31:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 796, "body_len": 8889, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:37:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 36082, "body_len": 306498, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:38:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 980, "body_len": 14039, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:46:51", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 22352, "body_len": 328852, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:47:29", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 37434, "body_len": 344381, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:47:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5218, "body_len": 346522, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:48:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16811, "body_len": 348439, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:48:44", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4152, "body_len": 357961, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:49:00", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16340, "body_len": 359619, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:50:03", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1019, "body_len": 18350, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:50:43", "method": "GET", "path": "/zzz-not-a-route", "attempts": ["HTTP404"], "ms": 819, "body_len": 0, "model": null, "route": "direct"}
+{"ts": "2026-10-21T04:51:04", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 982, "body_len": 17995, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:53:23", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 16959, "body_len": 370035, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:53:45", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 20997, "body_len": 379941, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T04:54:50", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1004, "body_len": 21231, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:02:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 18434, "body_len": 391166, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:02:30", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 25623, "body_len": 404286, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:03:34", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 2139, "body_len": 20267, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:08:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19729, "body_len": 417578, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:08:43", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11483, "body_len": 425681, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:09:00", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 10170, "body_len": 428992, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:09:16", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 14551, "body_len": 431286, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:09:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 15148, "body_len": 436265, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:10:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 2116, "body_len": 18403, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:15:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 22350, "body_len": 443372, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:15:48", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19187, "body_len": 458234, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:16:17", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 25971, "body_len": 464054, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:17:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1010, "body_len": 19519, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:22:23", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 54654, "body_len": 473709, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:22:30", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6833, "body_len": 502425, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:22:35", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5380, "body_len": 503882, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:23:02", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 26377, "body_len": 505414, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:23:12", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9770, "body_len": 507817, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:24:16", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1009, "body_len": 16001, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:26:01", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 36455, "body_len": 513732, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:26:10", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 8591, "body_len": 255018, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:26:22", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12729, "body_len": 259207, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:27:26", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1337, "body_len": 16445, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:30:25", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 37649, "body_len": 265386, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:31:29", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1000, "body_len": 19906, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:32:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9509, "body_len": 340880, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:32:41", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3727, "body_len": 343407, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:32:49", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7823, "body_len": 345351, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:32:54", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5236, "body_len": 345983, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:33:01", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7293, "body_len": 347680, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:33:07", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 5496, "body_len": 348497, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:33:16", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 9580, "body_len": 349069, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:34:22", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1694, "body_len": 13461, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:36:29", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12794, "body_len": 351380, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:37:34", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 2276, "body_len": 10326, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:39:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19981, "body_len": 358955, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:39:36", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6490, "body_len": 370785, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:39:48", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 11688, "body_len": 371262, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:40:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP410"], "ms": 2276, "body_len": 789486, "model": "space-bunny-free", "route": "direct"}
+{"ts": "2026-10-21T05:40:51", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1040, "body_len": 9690, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:42:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP410"], "ms": 21051, "body_len": 789486, "model": "space-bunny-free", "route": "direct"}
+{"ts": "2026-10-21T05:42:43", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "OK"], "ms": 38754, "body_len": 379117, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:42:52", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 7317, "body_len": 387950, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:42:56", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3732, "body_len": 391317, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:43:19", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 12081, "body_len": 427431, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:43:24", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 4644, "body_len": 433265, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:43:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 3564, "body_len": 434135, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:43:43", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 15616, "body_len": 434839, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:44:46", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 752, "body_len": 11410, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:48:25", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 25399, "body_len": 438457, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:49:27", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 794, "body_len": 13147, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:50:26", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 114062, "body_len": 789509, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:50:48", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 23274, "body_len": 484918, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:51:52", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 736, "body_len": 10397, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:58:18", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 26336, "body_len": 447187, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T05:59:22", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 1149, "body_len": 15576, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:01:37", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 120636, "body_len": 489113, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:02:40", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 844, "body_len": 13812, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:09:42", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 36769, "body_len": 512048, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:09:58", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 14152, "body_len": 518209, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:10:00", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 22509, "body_len": 459395, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:10:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 32556, "body_len": 468034, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:11:39", "method": "POST", "path": "/v1/chat/completions", "attempts": ["HTTP400"], "ms": 5107, "body_len": 17688, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:12:13", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 133843, "body_len": 522237, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:12:54", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 53212, "body_len": 476751, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:13:21", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 27051, "body_len": 496216, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:13:57", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 35958, "body_len": 345035, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:16:32", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "ERR:URLError", "OK"], "ms": 258473, "body_len": 220698, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:16:38", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 6324, "body_len": 221536, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:16:58", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 19995, "body_len": 223177, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:18:01", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 62689, "body_len": 226848, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:19:03", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "ERR:URLError", "HTTP400"], "ms": 243904, "body_len": 22065, "model": "deepseek-v4-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:21:31", "method": "POST", "path": "/v1/chat/completions", "attempts": ["ERR:URLError", "ERR:URLError", "OK"], "ms": 209123, "body_len": 240368, "model": "deepseek-v4.1-flash-free", "route": "direct"}
+{"ts": "2026-10-21T06:21:47", "method": "POST", "path": "/v1/chat/completions", "attempts": ["OK"], "ms": 15672, "body_len": 242780, "model": "deepseek-v4.1-flash-free", "route": "direct"}
