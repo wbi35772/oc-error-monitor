@@ -65,6 +65,7 @@
 | [E-010](../work/20261021-route-ledger/evidence/E-010.md) | 面板五视图实测渲染正常，路由视图 218 行成员表 | screenshot | info |
 | [E-011](../work/20261021-route-ledger/evidence/E-011.md) | 我自己用 PowerShell 破坏了 ui.html（ANSI 读 UTF-8）并修复 | command | info |
 | [E-012](../work/20261021-route-ledger/evidence/E-012.md) | 429 在 direct 与 proxy 两条路径上先后出现：限流键不在出口 IP | command | high |
+| [E-013](../work/20261021-route-ledger/evidence/E-013.md) | provider 级 api 对内置 opencode provider 无效：请求绕过代理直连 | command | high |
 
 ---
 
@@ -159,6 +160,24 @@
 ### 5.3 生产 8788 未变
 
 生产跑的是 v1.1.0，本轮**没有改它的代码**。它仍然不持久化设置（E-008）：重启后 `force_route` 回 `null`、`attempts` 回 4。这一点在 §7 的待办里。
+
+### 5.4 客户端指向（端口不再住在配置里）
+
+这一条是补上前一节：切换实例时，客户端配置里的 44 处 `api` 覆盖必须整体跟着改。
+
+**为什么不能只改一处**：`https://opencode.ai/config.json` 的 `ProviderConfig` 提供了 `api` 与 `options.baseURL` 两个位置，看起来可以把端口收成一处。但实测（E-013）：把 provider 级两个位置都指向 8788、只摘掉一个模型的 per-model 覆盖后，请求**两个代理都没收到**——它绕过代理直连了 opencode.ai（并在那里撞上 429）。内置 `opencode` provider 只认 per-model 覆盖。
+
+于是设计成：
+
+| 部件 | 职责 |
+|---|---|
+| `~/.config/opencode/retry-proxy-target.json` | **端口的唯一出处**，由活着的实例自己写（它知道自己的端口） |
+| `POST /__control {"action":"point_client"}` | 把所有本地 api 覆盖改写为该实例的地址，并写状态文件 |
+| `GET /__stats` 的 `client_target` / `client_matches` | 客户端现在指向谁，与本实例是否一致 |
+| 面板「客户端指向」卡片 | 显示指向 + 一致性 + 「把客户端指向本实例」按钮 |
+| `debug/switch-instance.ps1` | 切换成功后调用目标实例的 `point_client`；目标版本没有这个动作时**明说**，不留一个坏掉的客户端 |
+
+改写只碰 `"api": "http://127.0.0.1:<port>/v1"` 这一种形状，其它服务的地址不动；改写后必须仍是合法 JSON，否则不写盘。
 
 ---
 

@@ -357,6 +357,17 @@
         <div class="row"><span class="k">状态</span><span class="v" id="s-state">–</span></div>
         <div class="row"><span class="k">日志文件</span><span class="v" id="s-logpath">–</span></div>
       </section>
+
+      <section class="card" style="grid-column:span 12">
+        <h2>客户端指向</h2>
+        <div class="row"><span class="k">opencode 当前指向</span><span class="v" id="c-target">–</span></div>
+        <div class="row"><span class="k">本实例的地址</span><span class="v" id="c-self">–</span></div>
+        <div class="row"><span class="k">状态</span><span class="v" id="c-state">–</span></div>
+        <div class="btnrow" style="margin-top:8px">
+          <button class="primary" id="c-point">把客户端指向本实例</button>
+          <span class="meta" id="c-hint">opencode 的每个模型各有一处 api 覆盖，只有这一种写法生效，所以切换实例时要整体改写一遍。</span>
+        </div>
+      </section>
     </section>
   </main>
 </div>
@@ -443,6 +454,16 @@ function renderStats(s){
   if(document.activeElement !== $('f-timeout')) $('f-timeout').value = st.timeout ?? '';
   if(document.activeElement !== $('f-backoff')) $('f-backoff').value = (st.backoff||[]).join(',');
   $('f-route').value = st.force_route || '';
+
+  // Where the client is pointed. A mismatch with this instance is the one
+  // thing that makes "the proxy is up but nothing happens" obvious.
+  const ct=s.client_target||null;
+  set('c-target', ct ? (ct.base_url||'?') + '  v' + (ct.version||'?') + '  ' + (ct.updated_at||'') : 'not recorded');
+  set('c-self', s.client_base_url||'-');
+  const same = !!s.client_matches;
+  $('c-state').innerHTML = same
+    ? '<span style="color:var(--ok)">一致</span>'
+    : '<span style="color:var(--warn)">不一致</span> <span class="meta">客户端还在用别的实例</span>';
 
   const cl=s.classes||{};
   const total=Object.values(cl).reduce((a,b)=>a+b,0)||1;
@@ -864,6 +885,19 @@ $('rt-apply').onclick = ()=>{
 $('rt-clear').onclick = ()=>{
   if(!confirm('清空成员账本：所有历史成败记录归零，被冷却的成员立即可用。继续？')) return;
   routeAction({action:'clear'});
+};
+$('c-point').onclick = async ()=>{
+  const btn=$('c-point');
+  btn.disabled = true; btn.textContent = '改写中…';
+  try{
+    const r = await fetch('/__control',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({action:'point_client'})});
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || j.ok===false) throw new Error((j.errors&&j.errors[0]&&j.errors[0].error)||('HTTP '+r.status));
+    toast('客户端已指向 ' + j.base_url + '（改了 ' + j.overrides + ' 处）');
+    await load();
+  }catch(e){ toast('失败：'+e.message); }
+  finally{ btn.disabled = false; btn.textContent = '把客户端指向本实例'; }
 };
 
 /* ------------------------------ polling --------------------------------- */

@@ -91,6 +91,35 @@ UPSTREAM_PROXY = os.environ.get(
     "RETRY_PROXY_UPSTREAM_PROXY", "http://127.0.0.1:7899"
 )
 MAX_ATTEMPTS = max(1, int(os.environ.get("RETRY_PROXY_ATTEMPTS", "4")))
+
+# ---------------------------------------------------------------------------
+# Pointing the client at this instance
+#
+# The client config carries one api override per model, and opencode honours
+# no other form: a provider level `api` or `options.baseURL` on the built-in
+# "opencode" provider is ignored, so a request without a per-model override
+# goes straight to opencode.ai and never reaches the proxy. Measured on the
+# live box (E-013).
+#
+# So the port cannot live in the config as a constant. It lives in exactly one
+# place - a state file next to the client config - and the running instance
+# writes it. Every other copy in the client config is rewritten from that one
+# value, so switching instances is a write, not an edit of 44 lines.
+# ---------------------------------------------------------------------------
+CLIENT_CONFIG_DIR = os.path.join(
+    os.environ.get("USERPROFILE") or os.path.expanduser("~"), ".config", "opencode"
+)
+CLIENT_TARGET_FILE = os.environ.get(
+    "RETRY_PROXY_CLIENT_TARGET", os.path.join(CLIENT_CONFIG_DIR, "retry-proxy-target.json")
+)
+CLIENT_CONFIG_FILE = os.environ.get(
+    "RETRY_PROXY_CLIENT_CONFIG", os.path.join(CLIENT_CONFIG_DIR, "opencode.json")
+)
+# The api override shape this rewrites. Only these are touched, so a config
+# that also points at some other service is left alone.
+_CLIENT_API_RE = re.compile(
+    r'("api"\s*:\s*")http://127\.0\.0\.1:\d+/v1(")'
+)
 SOCK_TIMEOUT = float(os.environ.get("RETRY_PROXY_TIMEOUT", "120"))
 BACKOFF = [0.4, 1.0, 1.8, 3.0, 4.5]
 # A rate limit needs more patience than a transient 403: the gateway is asking
@@ -348,6 +377,132 @@ _load_settings()
 STARTED_TS = time.time()
 
 
+# ---------------------------------------------------------------------------
+# Client pointing
+# ---------------------------------------------------------------------------
+def client_base_url(port=None):
+    return "http://%s:%d/v1" % (HOST, int(port or PORT))
+
+
+def _client_config_files():
+    """Every opencode config that may carry an api override.
+
+    The global one is the usual place. OpenChamber runs opencode with its own
+    managed config, and a project can carry one too, so all of them are
+    offered for rewriting.
+    """
+    out = []
+    for path in (CLIENT_CONFIG_FILE, os.environ.get("OPENCODE_CONFIG") or ""):
+        if path and path not in out:
+            out.append(path)
+    cwd = os.getcwd()
+    for _ in range(3):
+        path = os.path.join(cwd, "opencode.json")
+        if path not in out:
+            out.append(path)
+        parent = os.path.dirname(cwd)
+        if parent == cwd:
+            break
+        cwd = parent
+    return [p for p in out if p and os.path.isfile(p)]
+
+
+def read_client_target():
+    """What the client is currently pointed at, according to the state file."""
+    try:
+        with open(CLIENT_TARGET_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _rewrite_client_config(path, base_url):
+    """Point every local api override in one config at base_url.
+
+    Returns (changed, count, error). The file is only written when the
+    rewrite leaves valid JSON behind, so a config the proxy cannot understand
+    is never damaged.
+    """
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError as exc:
+        return False, 0, "%s: %s" % (type(exc).__name__, exc)
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        return False, 0, "not utf-8: %s" % exc
+
+    def sub(m):
+        return m.group(1) + base_url + m.group(2)
+
+    new_text, count = _CLIENT_API_RE.subn(sub, text)
+    if not count:
+        return False, 0, None
+    try:
+        json.loads(new_text)
+    except ValueError as exc:
+        return False, 0, "rewrite would not be valid json: %s" % exc
+    # Keep the original byte order mark and line endings: the file is the
+    # client's, not ours.
+    prefix = raw[:3] if raw[:3] == b"\xef\xbb\xbf" else b""
+    body = new_text.encode("utf-8")
+    if b"\r\n" in raw and b"\r\n" not in body:
+        body = body.replace(b"\n", b"\r\n")
+    try:
+        with open(path, "wb") as f:
+            f.write(prefix + body)
+    except OSError as exc:
+        return False, 0, "%s: %s" % (type(exc).__name__, exc)
+    return True, count, None
+
+
+def point_client(port=None, reason="control"):
+    """Tell the client to talk to this instance.
+
+    The instance reports its own port; nothing here knows a port number.
+    """
+    base_url = client_base_url(port)
+    files = _client_config_files()
+    changed, total, errors = [], 0, []
+    for path in files:
+        ok, count, err = _rewrite_client_config(path, base_url)
+        if err:
+            errors.append({"file": path, "error": err})
+        if ok:
+            changed.append({"file": path, "overrides": count})
+            total += count
+    state = {
+        "base_url": base_url,
+        "port": int(port or PORT),
+        "version": VERSION,
+        "pid": os.getpid(),
+        "reason": reason,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "configs": changed,
+    }
+    try:
+        tmp = CLIENT_TARGET_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, CLIENT_TARGET_FILE)
+    except OSError as exc:
+        errors.append({"file": CLIENT_TARGET_FILE,
+                       "error": "%s: %s" % (type(exc).__name__, exc)})
+    return {
+        "ok": not errors,
+        "base_url": base_url,
+        "port": int(port or PORT),
+        "overrides": total,
+        "configs": changed,
+        "errors": errors,
+        "target_file": CLIENT_TARGET_FILE,
+    }
+
+
 # Two routes: through mihomo (normal) and direct (mihomo not running yet, or a
 # network that reaches the gateway without it). A refused proxy connection
 # switches the remaining attempts to direct instead of burning all of them.
@@ -432,6 +587,15 @@ def snapshot_stats():
         out["route"] = json.loads(json.dumps(ROUTE))
         out["settings_path"] = SETTINGS_PATH
         out["settings_schema"] = SETTINGS_SCHEMA
+        # Where the client is pointed right now, and where it would be pointed
+        # if it followed this instance. A mismatch is the one thing that makes
+        # "the router is up but nothing happens" obvious.
+        target = read_client_target()
+        out["client_target"] = target
+        out["client_base_url"] = client_base_url()
+        out["client_matches"] = bool(
+            target and target.get("base_url") == out["client_base_url"]
+        )
         out["uptime_s"] = round(time.time() - STARTED_TS, 1)
         out["pid"] = os.getpid()
         out["port"] = PORT
@@ -2008,6 +2172,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             SETTINGS["paused"] = True
         elif action == "resume":
             SETTINGS["paused"] = False
+        elif action == "point_client":
+            # The client follows whichever instance is alive. The instance
+            # reports its own port, so nothing here knows a port number.
+            out = point_client(reason="control")
+            out["action"] = action
+            out["settings"] = dict(SETTINGS)
+            return self._send_json(out)
         elif action == "drain":
             want = data.get("pid")
             if want and int(want) != os.getpid():

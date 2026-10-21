@@ -161,6 +161,24 @@ function Show-Toast([string]$title, [string]$text) {
     } catch { }
 }
 
+function Point-Client([int]$port) {
+    # The client config holds one api override per model and opencode honours
+    # no other form, so the port has to be written into all of them. The
+    # instance does that: it knows its own port, and nobody here has to know
+    # a port number.
+    try {
+        $r = Invoke-RestMethod ("http://127.0.0.1:$port/__control") -Method Post `
+            -ContentType 'application/json' -Body '{"action":"point_client"}' -TimeoutSec 8
+        Write-Host ("[ok] 客户端已指向 http://127.0.0.1:{0}/v1（改了 {1} 处）" -f $port, $r.overrides)
+        return $true
+    } catch {
+        # A build without the action cannot move the client. Say so instead of
+        # leaving the user to discover a broken client later.
+        Write-Host "[!!] 该版本没有 point_client，客户端指向未更新：$($_.Exception.Message)"
+        return $false
+    }
+}
+
 try {
     switch ($Action.ToLower()) {
         'status' {
@@ -202,6 +220,8 @@ try {
                 exit 1
             }
             Write-Host "[ok] $($b.Version) healthy on $($h.Port)"
+            # The target runs on its own port, so the client has to follow it.
+            Point-Client $h.Port | Out-Null
             foreach ($x in @(Get-Builds | Where-Object { $_.Version -ne $b.Version })) {
                 Stop-Build $x
                 Write-Host "[ok] $($x.Version) stopped"
@@ -236,6 +256,10 @@ try {
             }
             if ($h -and $h.version -eq $target.Version) {
                 Write-Host "[ok] $($target.Version) now on 8788 pid $($h.pid)"
+                # The port did not move, so the client usually does not have to.
+                # Pointing it anyway keeps the state file honest about which
+                # instance is serving.
+                Point-Client 8788 | Out-Null
                 Show-Toast "生产端已切换到 $($target.Version)" "8788 由 $($target.Version) 接管（pid $($h.pid)）"
             } else {
                 Write-Host "[!!] $($target.Version) did not take 8788; rolling back"

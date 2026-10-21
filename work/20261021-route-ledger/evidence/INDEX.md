@@ -14,6 +14,7 @@
 | [E-010](E-010.md) | 面板五视图实测渲染正常，路由视图 218 行成员表 | screenshot | info | — |
 | [E-011](E-011.md) | 我自己用 PowerShell 破坏了 ui.html（ANSI 读 UTF-8）并修复 | command | info | — |
 | [E-012](E-012.md) | 429 在 direct 与 proxy 两条路径上先后出现：限流键不在出口 IP | command | high | P-007 |
+| [E-013](E-013.md) | provider 级 api 对内置 opencode provider 无效：请求绕过代理直连 | command | high | 客户端指向 |
 
 ## 缺陷与证据的对应
 
