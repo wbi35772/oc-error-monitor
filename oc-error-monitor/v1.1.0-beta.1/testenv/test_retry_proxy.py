@@ -2,10 +2,10 @@
 
 Everything runs inside this project:
   * the upstream is mock_gateway.py on loopback
-  * the proxy runs from oc-error-monitor/v1.0.0/testenv/_run/ with its own logs
+  * the proxy runs from oc-error-monitor/v1.1.0-beta.1/testenv/_run/ with its own logs
   * no Clash Verge, no real gateway, no live network
 
-Run:  python oc-error-monitor/v1.0.0/testenv/test_retry_proxy.py
+Run:  python oc-error-monitor/v1.1.0-beta.1/testenv/test_retry_proxy.py
 """
 import http.client
 import json

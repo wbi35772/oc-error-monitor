@@ -52,7 +52,7 @@ def default_log_path() -> Path:
 
 
 def default_out_dir() -> Path:
-    # oc-error-monitor/v1.0.0/monitor.py -> workspace/logs/resilience
+    # oc-error-monitor/v1.1.0-beta.1/monitor.py -> workspace/logs/resilience
     return Path(__file__).resolve().parents[2] / "logs" / "resilience"
 
 

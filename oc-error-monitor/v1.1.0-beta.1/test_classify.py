@@ -2,7 +2,7 @@
 """Tiny regression test for the monitor's classifier.
 
 Run:
-  python oc-error-monitor/v1.0.0/test_classify.py
+  python oc-error-monitor/v1.1.0-beta.1/test_classify.py
 """
 
 from monitor import classify
