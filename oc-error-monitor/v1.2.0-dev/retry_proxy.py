@@ -858,6 +858,22 @@ def _probe_run(names, timeout_ms):
     with _probe_lock:
         _probe_state["running"] = False
         _probe_state["finished_at"] = time.time()
+        st_probe = {
+            "group": _probe_state["group"],
+            "timeout_ms": _probe_state["timeout_ms"],
+            "total": _probe_state["total"],
+            "alive": _probe_state["alive"],
+            "dead": _probe_state["dead"],
+            "finished_at": _probe_state["finished_at"],
+            "nodes": json.loads(json.dumps(_probe_state["nodes"])),
+        }
+    with _route_lock:
+        # Persist the verdicts so a restart, a handover or a crash does not
+        # throw away the only ranking evidence the pool had. The stale gate
+        # still ages them out - old evidence is restored as OLD evidence.
+        _route_state["probe"] = st_probe
+        _route_dirty[0] = True
+    _route_maybe_save()
 
 
 def net_probe(timeout_ms=5000, start=True):
@@ -1172,6 +1188,7 @@ _route_state = {
     "switches": 0,
     "rr": 0,
     "last_switch": None,
+    "probe": None,      # persisted net_probe verdicts, restored on start
 }
 _route_lock = threading.Lock()
 _route_dirty = [False]
@@ -1896,8 +1913,40 @@ def _route_load():
                 k: v for k, v in families.items() if isinstance(v, dict)
             }
         _route_state["current"] = raw.get("current")
+        _route_state["probe"] = raw.get("probe")
         for entry in _route_state["nodes"].values():
             _decay(entry)
+    # Restore the probe verdicts too: sorting and the pool view should know
+    # every member's last measured reality from the first request, without
+    # waiting tens of seconds for a fresh probe run. The same stale_s gate
+    # that ages out live results ages out restored ones.
+    _probe_restore(raw.get("probe"))
+
+
+def _probe_restore(data):
+    if not isinstance(data, dict) or not isinstance(data.get("nodes"), dict):
+        return
+    restored = {
+        "running": False,
+        "group": data.get("group"),
+        "timeout_ms": data.get("timeout_ms") or 5000,
+        "total": data.get("total") or 0,
+        "done": data.get("total") or 0,
+        "alive": data.get("alive") or 0,
+        "dead": data.get("dead") or 0,
+        "started_at": 0.0,
+        "finished_at": float(data.get("finished_at") or 0.0),
+        "nodes": {
+            n: {"delay": r.get("delay"), "dead": bool(r.get("dead")),
+                "error": r.get("error")}
+            for n, r in data["nodes"].items()
+            if isinstance(r, dict) and "dead" in r
+        },
+    }
+    with _probe_lock:
+        if (restored["finished_at"]
+                > float(_probe_state.get("finished_at") or 0.0)):
+            _probe_state.update(restored)
 
 
 _route_load()
@@ -2050,6 +2099,9 @@ def net_snapshot():
     preferred_re = re.compile(r"家宽|住宅|ISP|原生|WARP|MASQUE|Plus|US|美国|SG|新加坡|JP|日本", re.I)
     with _probe_lock:
         measured = dict(_probe_state["nodes"])
+        probe_meta = {k: _probe_state.get(k)
+                      for k in ("running", "total", "done", "alive", "dead",
+                                "finished_at")}
     members = []
     for name in (group_obj.get("all") or []):
         obj = proxies.get(name)
@@ -2091,6 +2143,7 @@ def net_snapshot():
         delay_ms=history[-1].get("delay") if history else None,
         history=[{"time": h.get("time"), "delay": h.get("delay")} for h in history[-6:]],
         live=live[:5],
+        probe=probe_meta,
         members=members,
         groups=[
             {"name": n, "now": o.get("now"), "count": len(o.get("all") or [])}
