@@ -1053,6 +1053,15 @@ class Handler(BaseHTTPRequestHandler):
     # -- control ----------------------------------------------------------
     def _control(self):
         path = urllib.parse.urlsplit(self.path).path
+        if path == "/__gateway/stop" and self.command == "POST":
+            # Served from the gateway's own dashboard (/__ui on its port):
+            # answer first, then leave. The proxy has its own stop path that
+            # terminates by pid, so a hung gateway is still stoppable.
+            def _bye():
+                time.sleep(0.4)
+                os._exit(0)
+            threading.Thread(target=_bye, daemon=True).start()
+            return self._json({"ok": True, "stopped": True, "pid": os.getpid()})
         if path == "/__gateway/key" and self.command == "POST":
             act = self._action()
             action = act.get("action") or "rotate"

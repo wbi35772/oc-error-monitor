@@ -58,6 +58,7 @@ import os
 import queue
 import random
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -2701,9 +2702,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
             time.sleep(0.3)
         return self._send_json({"ok": False, "error": "gateway did not answer in 12s"}, 500)
 
+    def _gateway_stop(self):
+        """Stop the gateway process the state file points at.
+
+        The dashboard opens on the proxy's port as often as on the gateway's
+        own, so this path has to work without the gateway being able to
+        cooperate: read its pid from /__gateway/state, terminate it, then
+        wait until the port stops answering. Nothing else runs from the same
+        script, so a pid carry-over would be visible as the port still up.
+        """
+        port = self._gateway_port()
+        state = self._gateway_state(port) if port else None
+        if not state:
+            return self._send_json({"ok": True, "already": True, "stopped": False})
+        pid = int(state.get("pid") or 0)
+        if not pid:
+            return self._send_json(
+                {"ok": False, "error": "gateway state carries no pid"}, 500
+            )
+        try:
+            os.kill(pid, signal.SIGTERM)   # TerminateProcess on Windows
+        except Exception:
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/F"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+                )
+            except Exception as exc:
+                return self._send_json(
+                    {"ok": False, "error": "could not stop pid %d: %r" % (pid, exc)},
+                    500,
+                )
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            if not self._gateway_state(port):
+                return self._send_json({"ok": True, "stopped": True, "pid": pid})
+            time.sleep(0.2)
+        return self._send_json(
+            {"ok": False, "pid": pid,
+             "error": "pid %d still answering after 8s" % pid}, 500,
+        )
+
     def _gateway(self, path, method, body):
         if path == "/__gateway/start" and method == "POST":
             return self._gateway_start()
+        if path == "/__gateway/stop" and method == "POST":
+            return self._gateway_stop()
         port = self._gateway_port()
         if not port or not self._gateway_state(port):
             return self._send_json({

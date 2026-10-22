@@ -948,10 +948,12 @@ async function loadGateway(){
     $('g-aligned').textContent = '–';
     $('g-models').textContent = st.hint || '网关还没启动。点「启动网关」。';
     $('g-cfgbox').textContent = '–';
+    $('g-start').textContent = '启动网关';
     store.gateway = null;
     return;
   }
   store.gateway = st;
+  $('g-start').textContent = '停止网关';
   const up = (st.backends_live||[]).filter(b=>b.up).map(b=>b.port+' · '+(b.version||'?'));
   $('g-state').textContent = '运行中 · pid '+st.pid;
   $('g-base').textContent = st.base_url || '–';
@@ -980,10 +982,18 @@ async function loadGateway(){
 }
 
 $('g-start').onclick = async ()=>{
-  const r = await gwFetch('/__gateway/start', {method:'POST'});
+  // One button, two jobs: stopped -> start, running -> stop. The label in
+  // loadGateway() says which one the click will do, so the old "already
+  // running" toast can never surprise anyone again.
+  const running = !!(store.gateway && store.gateway.running);
+  const r = await gwFetch(running ? '/__gateway/stop' : '/__gateway/start', {method:'POST'});
   const b = r.body || {};
-  if(b.ok){ toast('网关在 '+b.port+' 上'); loadGateway(); }
-  else toast('启动失败：'+(b.error||r.status));
+  if(running){
+    toast(b.ok ? '网关已停止'+(b.pid ? '（pid '+b.pid+'）' : '') : '停止失败：'+(b.error||r.status));
+  }else{
+    toast(b.ok ? '网关在 '+b.port+' 上' : '启动失败：'+(b.error||r.status));
+  }
+  loadGateway();
 };
 $('g-copybase').onclick = ()=> gwCopy(store.gateway && store.gateway.base_url, '地址');
 $('g-copykey').onclick = async ()=>{
