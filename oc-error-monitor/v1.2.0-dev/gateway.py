@@ -166,6 +166,11 @@ def public_state() -> dict:
     st["state_path"] = STATE_PATH
     st["base_url"] = base_url()
     st["align_due_in_s"] = align_due_in()
+    # The dashboard must be able to say which proxy is actually serving.
+    # `backends` stays the configured port list; `backends_live` is the probe
+    # result with versions, so the page never has to guess.
+    st["backends_live"] = backend_info()["backends"]
+    st["active_backend"] = pick_backend()
     return st
 
 
@@ -855,6 +860,22 @@ def main() -> int:
     if args.align:
         print(json.dumps(align(force=True), ensure_ascii=False, indent=2))
         return 0
+
+    # Single instance. A per-minute watchdog calls this file, and pick_port
+    # would happily hand a second copy the next free port, leaving two
+    # gateways serving two state files. One is alive and answering -> step
+    # aside instead of arguing about the port.
+    saved = _state.get("port")
+    if saved and port_listening(int(saved)):
+        health = backend_health(int(saved), timeout=1.0)
+        if health and health.get("service") == "oc-gateway":
+            if args.print_only:
+                print(json.dumps({"port": int(saved), "running": True,
+                                  "pid": health.get("pid")}, ensure_ascii=False))
+            else:
+                print("oc-gateway already running on %d (pid %s)"
+                      % (int(saved), health.get("pid")))
+            return 0
 
     port = args.port or pick_port(_state.get("port"))
     _state["port"] = port

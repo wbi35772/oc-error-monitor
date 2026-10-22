@@ -917,7 +917,7 @@ async function loadGateway(){
     return;
   }
   store.gateway = st;
-  const up = (st.backends||[]).filter(b=>b.up).map(b=>b.port+' · '+(b.version||'?'));
+  const up = (st.backends_live||[]).filter(b=>b.up).map(b=>b.port+' · '+(b.version||'?'));
   $('g-state').textContent = '运行中 · pid '+st.pid;
   $('g-base').textContent = st.base_url || '–';
   $('g-backend').textContent = up.length ? up.join('  /  ') : '无后端（8788 和 8899 都没应答）';
@@ -933,6 +933,15 @@ async function loadGateway(){
     if(p.ok) gwProvider = p.body;
   }
   $('g-cfgbox').textContent = gwProvider ? gwSnippet(gwProvider) : '–';
+  // The provider block carries a base URL with the port baked in. If the
+  // gateway had to take a different port (the saved one was busy at boot), the
+  // written config points at nothing and the failure looks like a dead
+  // gateway rather than a stale file.
+  const want = ((gwProvider||{}).provider||{}).options || {};
+  if (want.baseURL && st.base_url && want.baseURL !== st.base_url){
+    $('g-installhint').textContent =
+      '端口变了：供应商里写的是 '+want.baseURL+'，网关现在在 '+st.base_url+'。重新点「写入 opencode 供应商」。';
+  }
 }
 
 $('g-start').onclick = async ()=>{
