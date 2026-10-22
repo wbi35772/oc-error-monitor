@@ -59,13 +59,23 @@ def test_is_free():
 def test_provider_block():
     failed = 0
     saved_models = gateway._state.get("models")
+    saved_keys = gateway._state.get("keys")
     gateway._state["models"] = ["deepseek-v4.1-flash-free", "beam-free"]
     gateway._state["model_names"] = {"beam-free": "Beam"}
+    gateway._state["keys"] = [{
+        "id": "k_test",
+        "name": "test",
+        "key": "sk-ocg-testkeytestkeytestkey",
+        "created_at": "2026-01-01T00:00:00",
+        "enabled": True,
+        "last_used": None,
+    }]
     gateway._state["key"] = "sk-ocg-testkeytestkeytestkey"
     try:
         block = gateway.provider_block()
     finally:
         gateway._state["models"] = saved_models
+        gateway._state["keys"] = saved_keys
 
     options = block.get("options") or {}
     failed += check("block: openai-compatible npm",
@@ -91,14 +101,60 @@ def test_provider_block():
 def test_public_state():
     failed = 0
     secret = "sk-ocg-abcdefghijklmnopqrstuvwxyz"
+    saved = gateway._state.get("keys")
+    gateway._state["keys"] = [{
+        "id": "k_test", "name": "default", "key": secret,
+        "created_at": "2026-01-01T00:00:00", "enabled": True, "last_used": None,
+    }]
     gateway._state["key"] = secret
-    state = gateway.public_state()
+    try:
+        state = gateway.public_state()
+    finally:
+        gateway._state["keys"] = saved
     failed += check("state: raw key is stripped", state.get("key") is None)
     failed += check("state: masked key keeps only the ends",
                     state.get("key_masked") and secret not in state["key_masked"],
                     str(state.get("key_masked")))
+    failed += check("state: keys are listed masked",
+                    len(state.get("keys") or []) == 1
+                    and secret not in json.dumps(state.get("keys")),
+                    str(state.get("keys")))
     failed += check("state: nothing in the payload leaks the secret",
                     secret not in json.dumps(state))
+    return failed
+
+
+# --------------------------------------------------------------------------
+# multi-key: one per client, revoking one must not strand the rest
+# --------------------------------------------------------------------------
+def test_multi_key():
+    failed = 0
+    saved = gateway._state.get("keys")
+    first = "sk-ocg-aaaaaaaaaaaaaaaaaaaaaaaa"
+    second = "sk-ocg-bbbbbbbbbbbbbbbbbbbbbbbb"
+    gateway._state["keys"] = [
+        {"id": "k_a", "name": "a", "key": first, "enabled": True},
+        {"id": "k_b", "name": "b", "key": second, "enabled": False},
+    ]
+    try:
+        keys = gateway.public_keys()
+        failed += check("keys: every entry listed", len(keys) == 2, str(len(keys)))
+        failed += check("keys: values are masked",
+                        all(entry["masked"] != gateway._state["keys"][i]["key"]
+                            for i, entry in enumerate(keys))
+                        and all("…" in entry["masked"] for entry in keys),
+                        str(keys))
+        failed += check("keys: default skips disabled entries",
+                        gateway.default_key() == first, gateway.default_key())
+        entry = gateway.new_key("ci")
+        failed += check("keys: new_key is a usable entry",
+                        entry["id"].startswith("k_")
+                        and entry["key"].startswith("sk-ocg-")
+                        and entry["name"] == "ci"
+                        and entry["enabled"] is True,
+                        str(entry))
+    finally:
+        gateway._state["keys"] = saved
     return failed
 
 
@@ -206,6 +262,7 @@ def main() -> int:
         ("_is_free", test_is_free),
         ("provider_block", test_provider_block),
         ("public_state", test_public_state),
+        ("multi_key", test_multi_key),
         ("pick_port", test_pick_port),
         ("selftest", test_selftest),
         ("install dry run", test_dry_run_writes_nothing),

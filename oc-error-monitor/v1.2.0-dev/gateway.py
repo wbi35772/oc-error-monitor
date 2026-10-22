@@ -38,6 +38,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -74,20 +75,28 @@ HOP_BY_HOP = {
 
 DEFAULTS = {
     "port": None,
+    # `key` mirrors the first entry of `keys` and exists so a gateway.json
+    # written before multi-key still loads. Everything reads `keys`.
     "key": None,
+    "keys": [],
     "key_enabled": False,
     "upstream_key": None,
     "backend_override": None,
     "backends": DEFAULT_BACKENDS,
     "models": [],
     "model_names": {},
+    # Per-model verdict from the last verification pass:
+    # free / paid / gone / rate_limited / error.
+    "model_status": {},
+    "verified_at": None,
     "aligned_at": None,
     "aligned_source": ALIGN_URL,
     "align_error": None,
     "align_interval_s": 6 * 3600,
     "only_free": True,
-    # "cost" keeps anything the catalogue prices at zero (big-pickle and
-    # grok-code are $0 without a -free name); "name" trusts only the suffix.
+    # "cost" and "name" only decide which models are *candidates*. What gets
+    # exposed is whatever the upstream itself still serves on the free tier.
+    "verify_models": True,
     "free_rule": "cost",
     "created_at": None,
 }
@@ -124,9 +133,33 @@ def load_state() -> dict:
     st = dict(DEFAULTS)
     st.update({k: v for k, v in raw.items() if k in DEFAULTS})
     if not st["key"]:
-        st["key"] = new_key()
+        st["key"] = new_key()["key"]
     if not st["created_at"]:
         st["created_at"] = _now()
+    if not isinstance(st["keys"], list):
+        st["keys"] = []
+    # Older file: one bare key, no list. Promote it without changing its value
+    # so every client already configured keeps working.
+    if not st["keys"] and st["key"]:
+        st["keys"] = [{
+            "id": "k_default",
+            "name": "default",
+            "key": st["key"],
+            "created_at": st["created_at"] or _now(),
+            "enabled": True,
+            "last_used": None,
+        }]
+    if not st["keys"]:
+        entry = new_key("default")
+        st["keys"] = [entry]
+    st["keys"] = [k for k in st["keys"] if isinstance(k, dict) and k.get("key")]
+    for entry in st["keys"]:
+        entry.setdefault("id", "k_" + secrets.token_hex(4))
+        entry.setdefault("name", "default")
+        entry.setdefault("enabled", True)
+        entry.setdefault("created_at", _now())
+        entry.setdefault("last_used", None)
+    st["key"] = st["keys"][0]["key"]
     if not isinstance(st["models"], list):
         st["models"] = []
     if not isinstance(st["model_names"], dict):
@@ -146,18 +179,54 @@ def save_state() -> None:
         os.replace(tmp, STATE_PATH)
 
 
-def new_key() -> str:
+def new_key(name: str = "default") -> dict:
     # Deliberately shaped like an OpenAI key: several provider forms refuse a
     # value that does not start with sk-.
-    return "sk-ocg-" + secrets.token_urlsafe(24)
+    return {
+        "id": "k_" + secrets.token_hex(4),
+        "name": (name or "default").strip()[:40] or "default",
+        "key": "sk-ocg-" + secrets.token_urlsafe(24),
+        "created_at": _now(),
+        "enabled": True,
+        "last_used": None,
+    }
+
+
+def _mask(secret: str) -> str:
+    secret = secret or ""
+    return (secret[:11] + "…" + secret[-4:]) if len(secret) > 18 else secret
+
+
+def public_keys() -> list:
+    """Every key, masked, with the bookkeeping a client list needs.
+
+    One key per client is the point: revoking the laptop must not log out the
+    desktop, and `last_used` is what tells you which entry is still alive.
+    """
+    return [{
+        "id": k["id"],
+        "name": k.get("name") or "default",
+        "masked": _mask(k["key"]),
+        "enabled": bool(k.get("enabled", True)),
+        "created_at": k.get("created_at"),
+        "last_used": k.get("last_used"),
+    } for k in _state.get("keys") or []]
+
+
+def default_key() -> str:
+    for entry in _state.get("keys") or []:
+        if entry.get("enabled", True):
+            return entry.get("key") or ""
+    return (_state.get("keys") or [{}])[0].get("key") or ""
 
 
 def public_state() -> dict:
-    """What the dashboard is allowed to see: the key, masked."""
+    """What the dashboard is allowed to see: keys masked, never the values."""
     st = dict(_state)
-    key = st.get("key") or ""
-    st["key_masked"] = (key[:11] + "…" + key[-4:]) if len(key) > 18 else key
+    st["keys"] = public_keys()
+    st["key_masked"] = st["keys"][0]["masked"] if st["keys"] else ""
     st["key"] = None
+    st["keys_enabled"] = bool(_state.get("key_enabled"))
     st["upstream_key_set"] = bool(_state.get("upstream_key"))
     st["upstream_key"] = None
     st["running"] = True
@@ -354,15 +423,121 @@ def _is_free(model_id: str, meta: dict, rule: str = "cost") -> bool:
 
 
 def fetch_catalog(timeout: float = 25.0) -> dict:
+    # models.dev drops connections now and then (UNEXPECTED_EOF under TLS).
+    # Three tries with a pause between them turn that into a slower success
+    # instead of an alignment that silently keeps yesterday's list.
+    last = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                ALIGN_URL, headers={"User-Agent": "oc-error-monitor/%s" % VERSION}
+            )
+            # No system proxy: HTTPS_PROXY points at mihomo, and that hop
+            # currently kills the TLS handshake to models.dev (SSL EOF) while
+            # the direct route answers 200 with the full 6 MB. The catalogue
+            # is a public static file, so it does not need the proxy pool.
+            with _local_opener.open(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8", "replace"))
+        except Exception as exc:
+            last = exc
+            if attempt < 2:
+                time.sleep(1.5 + attempt)
+    raise last
+
+
+PROBE_HEADERS = {
+    # The free tier answers FreeTierError only to something shaped like the
+    # client; with these headers the reply is a verdict instead of a
+    # Cloudflare 1010.
+    "Authorization": "Bearer public",
+    "User-Agent": "opencode/latest/2.0.32/cli",
+    "x-opencode-client": "cli",
+    "Content-Type": "application/json",
+}
+
+PROBE_WORKERS = 4
+
+
+def _verdict(status: int, raw: str) -> str:
+    low = (raw or "").lower()
+    if status in (200, 201):
+        return "free"
+    if "freetier" in low:
+        return "free"
+    if "unavailable" in low or status == 404:
+        return "gone"
+    if status == 401 or "missing api key" in low:
+        return "paid"
+    if status == 429:
+        return "rate_limited"
+    return "unknown"
+
+
+def probe_model(model: str, port: int, timeout: float = 25.0) -> dict:
+    """Ask the upstream what it actually does with this model.
+
+    The reply is the whole point: 200 or FreeTierError means the free tier
+    still serves it, "Model is unavailable" means the catalogue kept a name the
+    service dropped, and Missing API key means it is paid. Name suffixes and
+    prices are guesses; this is the answer.
+    """
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "stream": False,
+    }).encode()
     req = urllib.request.Request(
-        ALIGN_URL, headers={"User-Agent": "oc-error-monitor/%s" % VERSION}
+        "http://%s:%d/v1/chat/completions" % (HOST, port), data=body, method="POST"
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8", "replace"))
+    for header, value in PROBE_HEADERS.items():
+        req.add_header(header, value)
+    started = time.time()
+    try:
+        with _local_opener.open(req, timeout=timeout) as resp:
+            resp.read(2048)
+            return {"status": resp.status, "verdict": "free",
+                    "ms": int((time.time() - started) * 1000)}
+    except urllib.error.HTTPError as exc:
+        raw = exc.read(4096).decode("utf-8", "replace")
+        return {"status": exc.code, "verdict": _verdict(exc.code, raw),
+                "ms": int((time.time() - started) * 1000),
+                "snippet": raw[:160]}
+    except Exception as exc:
+        return {"status": 0, "verdict": "error",
+                "ms": int((time.time() - started) * 1000),
+                "snippet": repr(exc)[:160]}
+
+
+def verify_models(ids: list, port: int) -> dict:
+    """Probe every candidate, a few at a time.
+
+    Four workers is deliberate: this is somebody else's free tier, and a burst
+    of 46 parallel requests is how an account gets rate limited for reasons
+    that have nothing to do with the models.
+    """
+    out = {}
+    lock = threading.Lock()
+
+    def work(mid):
+        result = probe_model(mid, port)
+        with lock:
+            out[mid] = result
+
+    with ThreadPoolExecutor(max_workers=PROBE_WORKERS) as pool:
+        list(pool.map(work, ids))
+    return out
 
 
 def align(force: bool = False) -> dict:
-    """Pull the live free-model list and store it.
+    """Rebuild the model list from the catalogue, then ask the service itself.
+
+    Two gates, in this order:
+      1. the catalogue narrows 130 names to the candidates priced at zero or
+         named -free;
+      2. the upstream is probed model by model and only FreeTierError (or a
+         200) keeps it. A name the service dropped disappears here instead of
+         failing later in a chat window.
 
     A failure keeps the previous list: a stale list still serves requests, an
     empty one does not.
@@ -372,7 +547,7 @@ def align(force: bool = False) -> dict:
         catalog = fetch_catalog()
         provider = (catalog or {}).get(ALIGN_PROVIDER) or {}
         models = provider.get("models") or {}
-        free = []
+        candidates = []
         names = {}
         for mid, meta in models.items():
             meta = meta if isinstance(meta, dict) else {}
@@ -380,31 +555,56 @@ def align(force: bool = False) -> dict:
                 mid, meta, _state.get("free_rule") or "cost"
             ):
                 continue
-            free.append(mid)
+            candidates.append(mid)
             names[mid] = meta.get("name") or mid
-        if not free:
+        if not candidates:
             raise RuntimeError("catalogue returned no free models for provider '%s'"
                                % ALIGN_PROVIDER)
-        free.sort()
+        candidates.sort()
+
+        status_map = {}
+        kept = candidates
+        backend = pick_backend()
+        if _state.get("verify_models", True) and backend:
+            status_map = verify_models(candidates, backend)
+            kept = [m for m in candidates
+                    if status_map.get(m, {}).get("verdict") == "free"]
+            inconclusive = [m for m in candidates if status_map.get(m, {}).get("verdict")
+                            in ("error", "unknown", "rate_limited")]
+            # The service refusing to answer is not evidence that a model is
+            # gone. If nothing was confirmed and everything failed, keep the
+            # catalogue list rather than ship an empty one.
+            if not kept and len(inconclusive) == len(candidates):
+                raise RuntimeError("model verification could not reach the upstream")
+
         before = set(_state.get("models") or [])
-        after = set(free)
-        _state["models"] = free
-        _state["model_names"] = names
+        after = set(kept)
+        _state["models"] = kept
+        _state["model_names"] = {m: names.get(m, m) for m in kept}
+        _state["model_status"] = status_map
+        if status_map:
+            _state["verified_at"] = _now()
         _state["aligned_at"] = _now()
         _state["align_error"] = None
         save_state()
+        counts = {}
+        for entry in status_map.values():
+            counts[entry.get("verdict")] = counts.get(entry.get("verdict"), 0) + 1
         result = {
             "ok": True,
-            "count": len(free),
+            "count": len(kept),
+            "candidates": len(candidates),
             "added": sorted(after - before),
             "removed": sorted(before - after),
+            "verdicts": counts,
             "took_ms": int((time.time() - started) * 1000),
             "source": ALIGN_URL,
             "provider": ALIGN_PROVIDER,
+            "verified": bool(status_map),
         }
-        print("gateway: aligned %d free models (%d added, %d removed) in %dms"
-              % (len(free), len(after - before), len(before - after),
-                 result["took_ms"]))
+        print("gateway: aligned %d/%d models (%d added, %d removed) in %dms %s"
+              % (len(kept), len(candidates), len(after - before),
+                 len(before - after), result["took_ms"], counts))
         return result
     except Exception as exc:
         _state["align_error"] = "%s: %s" % (type(exc).__name__, exc)
@@ -461,7 +661,7 @@ def opencode_config_path() -> str:
 PROVIDER_ID = "oc-gateway"
 
 
-def provider_block() -> dict:
+def provider_block(api_key: str | None = None) -> dict:
     models = {}
     for mid in _state.get("models") or []:
         models[mid] = {"name": _state.get("model_names", {}).get(mid) or mid}
@@ -470,20 +670,30 @@ def provider_block() -> dict:
         "name": "OC Gateway (free)",
         "options": {
             "baseURL": base_url(),
-            "apiKey": _state.get("key") or "",
+            "apiKey": api_key or default_key(),
         },
         "models": models,
     }
 
 
-def install_provider(dry_run: bool = False) -> dict:
+def install_provider(dry_run: bool = False, key_id: str | None = None) -> dict:
     """Write (or preview) the provider entry an agent platform needs.
 
     Only the `oc-gateway` key is touched: the 44 per-model overrides under
     `provider.opencode` are somebody else's business and stay byte-identical.
+    `key_id` picks which client key is baked into the entry, so two clients can
+    be handed two different keys rather than sharing one.
     """
     path = opencode_config_path()
-    block = provider_block()
+    chosen = default_key()
+    if key_id:
+        chosen = next(
+            (k["key"] for k in _state.get("keys") or [] if k["id"] == key_id and k.get("enabled", True)),
+            "",
+        )
+        if not chosen:
+            return {"ok": False, "error": "no such enabled key: %s" % key_id}
+    block = provider_block(chosen)
     if dry_run:
         return {"ok": True, "dry_run": True, "path": path, "provider_id": PROVIDER_ID,
                 "provider": block, "models": len(block["models"])}
@@ -580,7 +790,17 @@ class Handler(BaseHTTPRequestHandler):
         token = raw[7:].strip() if raw.lower().startswith("bearer ") else ""
         if not token:
             token = (self.headers.get("x-api-key") or "").strip()
-        return secrets.compare_digest(token, _state.get("key") or "")
+        if not token:
+            return False
+        # Any enabled key opens the door: one per client means revoking one
+        # device never logs out the others.
+        for entry in _state.get("keys") or []:
+            if not entry.get("enabled", True):
+                continue
+            if secrets.compare_digest(token, entry.get("key") or ""):
+                entry["last_used"] = _now()
+                return True
+        return False
 
     # -- routes -----------------------------------------------------------
     def do_OPTIONS(self):
@@ -632,10 +852,19 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/__gateway/log":
                 return self._json({"entries": list(reversed(_recent[-100:]))})
             if path == "/__gateway/key":
-                # Local only: the key is shown once, in full, so it can be
-                # pasted into a platform. The bind address already keeps this
-                # on the loopback interface.
-                return self._json({"key": _state.get("key"),
+                # Local only: the value is shown in full, once, so it can be
+                # pasted into a client. The bind address already keeps this on
+                # the loopback interface. `?id=` asks for one key, no id lists
+                # them masked.
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                wanted = (qs.get("id") or [""])[0]
+                if wanted:
+                    for entry in _state.get("keys") or []:
+                        if entry["id"] == wanted:
+                            return self._json({"key": entry["key"], "id": entry["id"],
+                                               "name": entry.get("name")})
+                    return self._error(404, "no such key")
+                return self._json({"keys": public_keys(),
                                    "enabled": _state.get("key_enabled")})
             if path == "/__gateway/provider":
                 return self._json(install_provider(dry_run=True))
@@ -695,11 +924,46 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/__gateway/key" and self.command == "POST":
             act = self._action()
             action = act.get("action") or "rotate"
-            if action == "rotate":
-                _state["key"] = new_key()
+            keys = _state.setdefault("keys", [])
+            if action == "create":
+                entry = new_key(act.get("name") or "client")
+                keys.append(entry)
+                _state["key"] = keys[0]["key"]
                 save_state()
-                note({"kind": "key", "action": "rotate"})
-                return self._json({"ok": True, "key": _state["key"]})
+                note({"kind": "key", "action": "create", "name": entry["name"]})
+                return self._json({"ok": True, "key": entry["key"], "id": entry["id"],
+                                   "name": entry["name"], "keys": public_keys()})
+            if action == "rotate":
+                target = act.get("id")
+                for entry in keys:
+                    if (target and entry["id"] == target) or (not target and entry is keys[0]):
+                        entry["key"] = "sk-ocg-" + secrets.token_urlsafe(24)
+                        entry["created_at"] = _now()
+                        _state["key"] = keys[0]["key"]
+                        save_state()
+                        note({"kind": "key", "action": "rotate", "id": entry["id"]})
+                        return self._json({"ok": True, "key": entry["key"],
+                                           "id": entry["id"], "keys": public_keys()})
+                return self._error(404, "no such key")
+            if action == "revoke":
+                target = act.get("id")
+                if len(keys) <= 1:
+                    return self._error(400, "the last key cannot be revoked")
+                remaining = [k for k in keys if k["id"] != target]
+                if len(remaining) == len(keys):
+                    return self._error(404, "no such key")
+                _state["keys"] = remaining
+                _state["key"] = remaining[0]["key"]
+                save_state()
+                note({"kind": "key", "action": "revoke", "id": target})
+                return self._json({"ok": True, "keys": public_keys()})
+            if action == "rename":
+                for entry in keys:
+                    if entry["id"] == act.get("id"):
+                        entry["name"] = (act.get("name") or "client").strip()[:40] or "client"
+                        save_state()
+                        return self._json({"ok": True, "keys": public_keys()})
+                return self._error(404, "no such key")
             if action == "enable" or action == "disable":
                 _state["key_enabled"] = action == "enable"
                 save_state()

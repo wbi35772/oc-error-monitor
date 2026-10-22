@@ -733,6 +733,12 @@ CLASH_DIRS = [
 MIHOMO_API = os.environ.get("RETRY_PROXY_MIHOMO_API", "http://127.0.0.1:9097")
 _NET_TTL = 3.0
 _net_cache = {"at": 0.0, "data": None}
+# mihomo forgets a closed connection immediately, so between two requests the
+# live-chain lookup finds nothing and the dashboard would flip to "DIRECT"
+# while the group is still pointing at a node. Remember the last chain for a
+# while and label it as such instead of showing a wrong answer.
+_last_chain = {"chain": [], "at": 0.0}
+_NET_STICKY_S = 900.0
 _net_lock = threading.Lock()
 
 
@@ -1710,6 +1716,12 @@ def route_status():
             "basis": pool.get("basis"),
             "now": pool.get("now"),
             "count": pool.get("count"),
+            # The panel needs these two: without refresh_s its interval box
+            # always showed the default, and mihomo_group says whether the
+            # pool was found by rule or pinned by hand.
+            "refresh_s": ROUTE["pool"].get("refresh_s"),
+            "mihomo_group": ROUTE["pool"].get("mihomo_group"),
+            "refresh_at": pool.get("ts"),
         },
         "strategy": ROUTE["select"].get("strategy"),
         "pin": ROUTE["select"].get("pin"),
@@ -1783,9 +1795,29 @@ def route_action(payload):
                     changed["decay_half_life_s"] = value
             except (TypeError, ValueError):
                 pass
+        if "pool_refresh_s" in data:
+            # How long a member list is trusted before mihomo is asked again.
+            try:
+                value = max(5, min(3600, int(data["pool_refresh_s"])))
+                if value != ROUTE["pool"].get("refresh_s"):
+                    ROUTE["pool"]["refresh_s"] = value
+                    _pool_cache["at"] = 0.0
+                    changed["pool_refresh_s"] = value
+            except (TypeError, ValueError):
+                pass
         if changed:
             save_settings("route:set")
         return {"ok": True, "action": action, "changed": changed, "route": route_status()}
+
+    if action == "refresh":
+        # Drop both caches first: the point of the button is to see the group
+        # as it is now, not the copy that would have expired up to a minute
+        # from now.
+        _pool_cache["at"] = 0.0
+        _net_cache.update({"at": 0.0, "data": None})
+        pool = discover_pool(force=True)
+        return {"ok": bool(pool.get("ok")), "action": action, "pool": pool,
+                "route": route_status()}
 
     if action in ("clear", "reset"):
         with _route_lock:
@@ -1963,29 +1995,45 @@ def net_snapshot():
             live_chain = list(chains)
 
     matched_rule = None
+    freshness = None
     if live_chain:
         chain = list(reversed(live_chain))  # group .. node
         basis = "live connection"
+        # Remember it: a chat turn is a burst, and between bursts the
+        # connection list is empty. Falling back to "the selector's default"
+        # in that gap shows a different node than the one that just served the
+        # request, which reads as a bug even when both answers were right.
+        with _net_lock:
+            _last_chain["chain"] = list(chain)
+            _last_chain["at"] = time.time()
     else:
+        with _net_lock:
+            sticky = list(_last_chain["chain"])
+            age = time.time() - _last_chain["at"]
         entry = None
-        if mode == "global":
-            entry, basis = "GLOBAL", "mode global"
-        elif mode == "direct":
-            entry, basis = "DIRECT", "mode direct"
+        if sticky and age <= _NET_STICKY_S:
+            chain = sticky
+            basis = "last seen %ds ago" % int(age)
+            freshness = int(age)
         else:
-            entry, matched_rule = _rule_target(rules, host)
-            basis = matched_rule or "no rule matched"
-        if not entry:
-            # Nothing matched: fall back to the group that looks meant for it.
-            for name, obj in proxies.items():
-                if (
-                    isinstance(obj, dict)
-                    and obj.get("type") == "Selector"
-                    and "opencode" in name.lower()
-                ):
-                    entry, basis = name, "group name"
-                    break
-        chain = _resolve_chain(proxies, entry) if entry else []
+            if mode == "global":
+                entry, basis = "GLOBAL", "mode global"
+            elif mode == "direct":
+                entry, basis = "DIRECT", "mode direct"
+            else:
+                entry, matched_rule = _rule_target(rules, host)
+                basis = matched_rule or "no rule matched"
+            if not entry:
+                # Nothing matched: fall back to the group that looks meant for it.
+                for name, obj in proxies.items():
+                    if (
+                        isinstance(obj, dict)
+                        and obj.get("type") == "Selector"
+                        and "opencode" in name.lower()
+                    ):
+                        entry, basis = name, "group name"
+                        break
+            chain = _resolve_chain(proxies, entry) if entry else []
 
     node = chain[-1] if chain else None
     group = chain[0] if len(chain) > 1 else None

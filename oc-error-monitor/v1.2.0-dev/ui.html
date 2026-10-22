@@ -247,6 +247,15 @@
           <span class="k">策略</span>
           <span class="v"><select id="rt-strategy"></select></span>
         </div>
+        <div class="meta" id="rt-strategy-help" style="margin:0 0 10px;line-height:1.7">
+          <b>least_fail</b> 按近期失败次数最少挑（默认，冷启动最稳）·
+          <b>ewma_ok</b> 按成功率指数加权（长期最准）·
+          <b>lowest_latency</b> 按最近一次延迟 ·
+          <b>round_robin</b> 轮流用（均匀分担）·
+          <b>weighted_random</b> 按成功率加权随机（避免同时撞一条线）·
+          <b>off / none / mihomo / manual</b> 不接管：只跟随 mihomo 组内当前选择，本代理不主动切。
+          策略只决定「下一个请求走谁」，已经在跑的流不会被切开。
+        </div>
         <div class="row">
           <span class="k">锁定成员</span>
           <span class="v"><input id="rt-pin" type="text" placeholder="留空 = 不锁定" style="min-width:180px" /></span>
@@ -270,6 +279,20 @@
           <span class="meta" id="rt-hint"></span>
         </div>
         <div class="meta" style="margin-top:8px" id="rt-rotate"></div>
+      </section>
+
+      <section class="card rt-policy">
+        <h2>节点池刷新</h2>
+        <div class="row">
+          <span class="k">自动刷新间隔</span>
+          <span class="v"><input id="rt-poolrefresh" type="number" min="5" max="3600" step="5" style="width:90px" /> 秒</span>
+        </div>
+        <div class="btnrow" style="margin-top:10px">
+          <button id="rt-poolnow">立即刷新节点池</button>
+          <span class="meta" id="rt-poolhint">
+            刷新只重读 mihomo 的成员列表，不动当前线路。间隔越短越跟手，越长越省控制面请求。
+          </span>
+        </div>
       </section>
 
       <section class="card rt-families">
@@ -416,14 +439,16 @@
       </section>
 
       <section class="card" style="grid-column:span 7">
-        <h2>接入</h2>
+        <h2>一键接入</h2>
         <div class="btnrow">
-          <button class="primary" id="g-install">写入 opencode 供应商</button>
+          <button class="primary" id="g-install">一键导入到 opencode / OpenChamber</button>
           <button id="g-copyprovider">复制供应商配置</button>
           <button id="g-selftest">自检上游</button>
         </div>
         <div class="meta" id="g-installhint" style="margin-top:8px">
-          写进 ~/.config/opencode/opencode.json 的 provider.oc-gateway。先备份，只动这一个键。
+          两个客户端读同一份 <code>~/.config/opencode/opencode.json</code>，所以写一次两边都出现
+          <code>oc-gateway</code> 供应商；只写这个键，先备份，44 处 <code>provider.opencode</code> 覆盖不动。
+          写完后重启客户端生效，网关要保持运行。
         </div>
         <div class="code" id="g-cfgbox" style="margin-top:10px">–</div>
       </section>
@@ -575,7 +600,16 @@ function renderNet(n){
   $('net-ups').textContent = n.upstream + '  →  ' + n.proxy;
   $('net-ctl').textContent = n.controller + (n.mode ? ' · mode=' + n.mode : '');
   $('net-hist').textContent = (n.history||[]).map(h=>h.delay===0?'超时':(h.delay||'?')+'ms').join('  ') || '–';
-  $('d-node').innerHTML = (n.group?esc(n.group)+' → ':'') + esc(n.node||'–') + ' · ' + delayCell(n.delay_ms);
+  // The whole chain is the honest answer. 🎯 OpenCode专用 → 🚀 节点选择 →
+  // 🎯 全球直连 means the selector did what it was told and the exit is
+  // direct; showing only "group → DIRECT" made a working chain look broken.
+  const hops = chain.length ? chain : [n.group, n.node].filter(Boolean);
+  const directExit = /direct/i.test(n.node_type || '') || /direct|直连/i.test(n.node || '');
+  const tail = directExit
+    ? '<span style="color:var(--mut)">直连，无延迟测量</span>'
+    : delayCell(n.delay_ms);
+  $('d-node').innerHTML = hops.map(h=>esc(h)).join(' <span class="arrow">→</span> ') + ' · ' + tail;
+  $('d-node').title = hops.join(' → ');
 
   const live = n.live || [];
   $('net-live').innerHTML = live.length ? live.map(c=>
@@ -689,6 +723,7 @@ function renderRoute(r){
   if(document.activeElement !== $('rt-cooldown')) $('rt-cooldown').value = r.cooldown_s || 120;
   if(document.activeElement !== $('rt-famthr')) $('rt-famthr').value = r.family_threshold || 3;
   if(document.activeElement !== $('rt-famcool')) $('rt-famcool').value = r.family_cooldown_s || 900;
+  if(document.activeElement !== $('rt-poolrefresh')) $('rt-poolrefresh').value = pool.refresh_s || 30;
 
   $('rt-rotate').textContent = '可触发换节点的失败类：' + ((r.rotate_on||[]).join('、') || '无') +
     '（其余失败只记账，不动出口 IP）';
@@ -980,9 +1015,10 @@ $('g-install').onclick = async ()=>{
   const r = await gwFetch('/__gateway/install', {method:'POST'});
   const b = r.body || {};
   $('g-installhint').textContent = b.ok
-    ? '已写入 '+b.path+(b.backup ? '，备份 '+b.backup.split('\\').pop() : '')+'。重启 opencode 后生效。'
+    ? '已写入 '+b.path+(b.backup ? '，备份 '+b.backup.split('\\').pop() : '')
+      +'。重启 opencode / OpenChamber 生效，网关要保持运行。'
     : '写入失败：'+(b.error||r.status);
-  if(b.ok) toast('供应商已写入');
+  if(b.ok) toast('已导入到 opencode / OpenChamber');
 };
 $('g-copyprovider').onclick = ()=> gwCopy($('g-cfgbox').textContent, '供应商配置');
 $('g-selftest').onclick = async ()=>{
@@ -1215,10 +1251,158 @@ route();
 load();
 connect();
 setInterval(load, 2000);
-setInterval(()=>{ if(store.view==='network') loadNet(); }, 5000);
+// The overview prints the live exit too, so it has to refresh as often as the
+// network view does — a cached answer there is what made it look wrong.
+setInterval(()=>{ if(store.view==='network'||store.view==='overview') loadNet(); }, 4000);
 setInterval(()=>{ if(store.view==='logs' && !document.hidden) loadLogs(); }, 8000);
 setInterval(()=>{ if(store.view==='overview') drawChart(); }, 2000);
 loadNet();
+/* ------------------- pool controls / field help / api keys --------------- */
+(function(){
+  // The pool card and the settings help are added from here so the markup
+  // stays in one place and every handler is wired in the same pass.
+  const nowBtn = $('rt-poolnow');
+  if(nowBtn){
+    nowBtn.onclick = async ()=>{
+      const label = nowBtn.textContent;
+      nowBtn.disabled = true;
+      nowBtn.textContent = '刷新中…';
+      try{ await routeAction({action:'refresh'}); }
+      finally { nowBtn.disabled = false; nowBtn.textContent = label; }
+    };
+  }
+  const poolInterval = $('rt-poolrefresh');
+  if(poolInterval){
+    poolInterval.onchange = ()=>{
+      const v = Math.max(5, Math.min(3600, Number(poolInterval.value) || 30));
+      poolInterval.value = v;
+      routeAction({action:'set', pool_refresh_s: v});
+    };
+  }
+
+  const setView = $('v-settings');
+  if(setView && !$('set-help')){
+    const help = document.createElement('div');
+    help.id = 'set-help';
+    help.className = 'meta';
+    help.style.cssText = 'grid-column:span 12;line-height:1.85;margin-top:2px';
+    help.innerHTML = [
+      '<b>最大尝试次数</b>：同一个请求最多试几条线路。用完就把最后一次的错误交回客户端——客户端显示错误，点「继续」是一个新请求，重新计数。',
+      '<b>超时（秒）</b>：单次尝试的上限。流式回答按「多久没有新数据」算，不是整段回答的总时长。',
+      '<b>上游线路</b>：跟随自动 = 代理自己判断；强制 Clash = 只走代理组；强制直连 = 只走本机出口。自动在连续失败时会换一侧。',
+      '<b>退避序列</b>：第 n 次重试前等几秒，按逗号顺序取，用完了重复最后一个值。',
+      '<b>已经开始的流断掉不能重试</b>：数据已经写给客户端了，重试会重复内容。这种情况只能重新发起请求。',
+    ].join('<br>');
+    setView.appendChild(help);
+  }
+
+  const gwView = $('v-gateway');
+  if(gwView && !$('g-keys-card')){
+    const card = document.createElement('section');
+    card.className = 'card';
+    card.id = 'g-keys-card';
+    card.style.gridColumn = 'span 12';
+    card.innerHTML =
+      '<h2>API key · 每个客户端一把</h2>' +
+      '<div class="btnrow">' +
+        '<input id="g-keyname" type="text" placeholder="名字，例如 laptop / ci / openchamber" style="min-width:240px" />' +
+        '<button class="primary" id="g-keycreate">新建</button>' +
+        '<button id="g-keytoggle">启用校验</button>' +
+        '<span class="meta" id="g-keyhint"></span>' +
+      '</div>' +
+      '<div style="overflow:auto;margin-top:8px"><table>' +
+        '<thead><tr><th>名字</th><th>key</th><th>最近使用</th><th></th></tr></thead>' +
+        '<tbody id="g-keyrows"></tbody></table></div>' +
+      '<div class="meta" style="margin-top:8px">' +
+        '校验关闭时网关原样转发客户端自己的 Authorization，适合只用 opencode 自家客户端；' +
+        '打开后每个客户端必须带自己的 key。删掉的 key 立即失效，其它 key 不受影响。' +
+      '</div>';
+    gwView.appendChild(card);
+  }
+
+  function keyRows(keys){
+    if(!keys || !keys.length) return '<tr><td colspan="4" class="meta">还没有 key</td></tr>';
+    return keys.map(k =>
+      '<tr><td>'+esc(k.name)+'</td>'+
+      '<td><code>'+esc(k.masked)+'</code></td>'+
+      '<td class="meta">'+(k.last_used ? ago(k.last_used) : '从未')+'</td>'+
+      '<td><button class="btn" data-key="'+esc(k.id)+'" data-act="copy">复制</button> '+
+      '<button class="btn" data-key="'+esc(k.id)+'" data-act="rotate">轮换</button> '+
+      '<button class="btn" data-key="'+esc(k.id)+'" data-act="revoke">删除</button></td></tr>'
+    ).join('');
+  }
+
+  async function refreshKeys(){
+    const r = await gwFetch('/__gateway/state');
+    const st = r.body || {};
+    if($('g-keyrows')) $('g-keyrows').innerHTML = keyRows(st.keys || []);
+    if($('g-keyhint')){
+      $('g-keyhint').textContent = st.keys_enabled
+        ? '校验已开启 · ' + (st.keys || []).length + ' 把'
+        : '校验已关闭：不检查 key';
+      $('g-keytoggle').textContent = st.keys_enabled ? '关闭校验' : '启用校验';
+      $('g-keytoggle').dataset.on = st.keys_enabled ? '1' : '';
+    }
+    return st;
+  }
+
+  if($('g-keycreate')){
+    $('g-keycreate').onclick = async ()=>{
+      const name = ($('g-keyname').value || '').trim() || ('client-' + Date.now().toString(36));
+      const r = await gwFetch('/__gateway/key', {method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({action:'create', name})});
+      const b = r.body || {};
+      if(b.ok){
+        $('g-keyname').value = '';
+        await refreshKeys();
+        gwCopy(b.key, '「' + name + '」的 key');
+      } else toast('新建失败：' + (b.error || r.status));
+    };
+  }
+  if($('g-keytoggle')){
+    $('g-keytoggle').onclick = async ()=>{
+      const on = $('g-keytoggle').dataset.on === '1';
+      const r = await gwFetch('/__gateway/key', {method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({action: on ? 'disable' : 'enable'})});
+      await refreshKeys();
+      toast((r.body || {}).ok ? '已切换' : '切换失败');
+    };
+  }
+  if($('g-keyrows')){
+    $('g-keyrows').addEventListener('click', async (ev)=>{
+      const btn = ev.target.closest('button[data-key]');
+      if(!btn) return;
+      const id = btn.dataset.key, act = btn.dataset.act;
+      if(act === 'copy'){
+        const r = await gwFetch('/__gateway/key?id=' + encodeURIComponent(id));
+        gwCopy((r.body || {}).key, 'key');
+        return;
+      }
+      if(act === 'revoke' && !confirm('删除这个 key？用它的客户端会立刻 401。')) return;
+      const r = await gwFetch('/__gateway/key', {method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({action: act, id})});
+      const b = r.body || {};
+      if(!b.ok){ toast('失败：' + (b.error || r.status)); return; }
+      await refreshKeys();
+      if(act === 'rotate' && b.key) gwCopy(b.key, '新 key');
+      else toast('已删除');
+    });
+  }
+
+  // Every dashboard refresh of the gateway view also refreshes the key list.
+  const originalLoad = window.loadGateway;
+  if(typeof originalLoad === 'function'){
+    window.loadGateway = async function(){
+      const out = await originalLoad.apply(this, arguments);
+      refreshKeys();
+      return out;
+    };
+  }
+  setTimeout(refreshKeys, 400);
+})();
 </script>
 </body>
 </html>
