@@ -38,3 +38,7 @@ __pycache__/
 settings.json
 settings.json.tmp
 route_state.json
+gateway.json
+gateway.json.tmp
+# captured request headers/bodies: local session ids and prompts
+headers-dump.jsonl

@@ -24,6 +24,9 @@
   .pill.warn .dot{background:var(--warn);box-shadow:0 0 0 3px rgba(210,153,34,.18)}
   .pill.err .dot{background:var(--err);box-shadow:0 0 0 3px rgba(248,81,73,.18)}
   .meta{color:var(--mut);font-size:12px;font-family:var(--mono)}
+  .code{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;
+        font-family:var(--mono);font-size:11.5px;color:var(--fg);white-space:pre;overflow:auto;
+        max-height:240px;line-height:1.55}
   nav{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px;border-bottom:1px solid var(--line);padding-bottom:10px}
   nav button{border:1px solid transparent;background:transparent;color:var(--mut);
     border-radius:8px;padding:7px 13px;font:600 12.5px system-ui;cursor:pointer}
@@ -132,6 +135,7 @@
     <button data-view="overview">总览</button>
     <button data-view="network">网络</button>
     <button data-view="route">路由</button>
+    <button data-view="gateway">网关</button>
     <button data-view="logs">日志</button>
     <button data-view="settings">设置</button>
   </nav>
@@ -369,6 +373,69 @@
         </div>
       </section>
     </section>
+
+    <!-- ======================= 网关 ======================= -->
+    <section class="view" id="v-gateway">
+      <section class="card" style="grid-column:span 5">
+        <h2>固定门牌</h2>
+        <div class="row"><span class="k">状态</span><span class="v" id="g-state">–</span></div>
+        <div class="row"><span class="k">地址</span><span class="v" id="g-base">–</span></div>
+        <div class="row"><span class="k">后端</span><span class="v" id="g-backend">–</span></div>
+        <div class="row"><span class="k">API key</span><span class="v" id="g-key">–</span></div>
+        <div class="row"><span class="k">免费模型</span><span class="v" id="g-count">–</span></div>
+        <div class="row"><span class="k">上次对齐</span><span class="v" id="g-aligned">–</span></div>
+        <div class="btnrow" style="margin-top:8px">
+          <button class="primary" id="g-start">启动网关</button>
+          <button id="g-copybase">复制地址</button>
+          <button id="g-copykey">复制 key</button>
+        </div>
+        <div class="meta" style="margin-top:8px">
+          客户端只填这一个地址。8788 和 8899 谁活着由网关自己挑，换实例不必再改配置。
+        </div>
+      </section>
+
+      <section class="card" style="grid-column:span 7">
+        <h2>模型对齐 · 只暴露免费模型</h2>
+        <div class="ctl-grid">
+          <label class="f">判定方式
+            <select id="g-rule">
+              <option value="cost">按价格（input/output 都为 0）</option>
+              <option value="name">按名字（只认 -free 后缀）</option>
+            </select>
+          </label>
+          <label class="f">自动对齐间隔（秒，0 关闭）
+            <input id="g-interval" type="number" min="0" max="86400" step="60" />
+          </label>
+        </div>
+        <div class="btnrow">
+          <button class="primary" id="g-align">立即对齐</button>
+          <button id="g-saverule">保存设置</button>
+          <span class="meta" id="g-alignhint">来源 models.dev，只保留下载下来不需要付费的模型。</span>
+        </div>
+        <div class="meta" id="g-models" style="margin-top:8px;max-height:110px;overflow:auto"></div>
+      </section>
+
+      <section class="card" style="grid-column:span 7">
+        <h2>接入</h2>
+        <div class="btnrow">
+          <button class="primary" id="g-install">写入 opencode 供应商</button>
+          <button id="g-copyprovider">复制供应商配置</button>
+          <button id="g-selftest">自检上游</button>
+        </div>
+        <div class="meta" id="g-installhint" style="margin-top:8px">
+          写进 ~/.config/opencode/opencode.json 的 provider.oc-gateway。先备份，只动这一个键。
+        </div>
+        <div class="code" id="g-cfgbox" style="margin-top:10px">–</div>
+      </section>
+
+      <section class="card" style="grid-column:span 5">
+        <h2>上游校验</h2>
+        <div class="row"><span class="k">结果</span><span class="v" id="g-probe">未运行</span></div>
+        <div class="meta" id="g-probehint" style="margin-top:6px">
+          上游免费层只认真正的 opencode 客户端：同一批请求头、同一个 session，用它自己的请求能过，用脚本复刻不行。
+        </div>
+      </section>
+    </section>
   </main>
 </div>
 <div class="toast" id="toast"></div>
@@ -393,6 +460,7 @@ const store = {
   netFilter: "all",
   route: null,
   routeFilter: "all",
+  gateway: null,
   view: "overview",
 };
 const $ = (id) => document.getElementById(id);
@@ -774,7 +842,7 @@ function addEvent(ev){
 }
 
 /* ----------------------------- router ----------------------------------- */
-const VIEWS = ['overview','network','route','logs','settings'];
+const VIEWS = ['overview','network','route','gateway','logs','settings'];
 function show(name){
   if(!VIEWS.includes(name)) name='overview';
   store.view = name;
@@ -785,6 +853,7 @@ function show(name){
     b.setAttribute('aria-current', String(b.dataset.view===name)));
   if(name==='network') loadNet();
   if(name==='route') loadRoute();
+  if(name==='gateway') loadGateway();
   if(name==='logs') loadLogs();
   if(name==='overview') drawChart();
 }
@@ -796,6 +865,128 @@ window.addEventListener('hashchange', route);
 document.querySelectorAll('#nav button').forEach(b=>{
   b.onclick = ()=>{ location.hash = '#/'+b.dataset.view; };
 });
+
+/* -------------------------------- gateway -------------------------------- */
+// The gateway is a second process on its own port. Every /__gateway call is
+// relayed by this server, and answers 503 JSON while the gateway is down, so a
+// failed call still has a readable body rather than an exception.
+let gwProvider = null;
+
+async function gwFetch(path, opts){
+  const r = await fetch(path, Object.assign({cache:'no-store'}, opts||{}));
+  const text = await r.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch(e){ body = {raw:text}; }
+  return {ok:r.ok, status:r.status, body:body||{}};
+}
+
+function ago(iso){
+  if(!iso) return '从未';
+  const t = Date.parse(String(iso).replace(' ','T'));
+  if(isNaN(t)) return String(iso);
+  const s = Math.max(0, Math.round((Date.now()-t)/1000));
+  return s<60 ? s+'s 前' : s<3600 ? Math.round(s/60)+'m 前' : Math.round(s/3600)+'h 前';
+}
+
+function gwCopy(text, what){
+  if(!text || text==='–'){ toast('还没有内容'); return; }
+  navigator.clipboard.writeText(text).then(
+    ()=>toast(what+' 已复制'),
+    ()=>toast('浏览器拒绝写入剪贴板，请手动选中')
+  );
+}
+
+function gwSnippet(p){
+  const one = {}; one[p.provider_id] = p.provider;
+  return JSON.stringify({provider: one}, null, 2);
+}
+
+async function loadGateway(){
+  const res = await gwFetch('/__gateway/state');
+  const st = res.body || {};
+  if(res.status!==200 || st.running!==true){
+    $('g-state').textContent = '未运行';
+    $('g-base').textContent = '–';
+    $('g-backend').textContent = '–';
+    $('g-key').textContent = '–';
+    $('g-count').textContent = '0';
+    $('g-aligned').textContent = '–';
+    $('g-models').textContent = st.hint || '网关还没启动。点「启动网关」。';
+    $('g-cfgbox').textContent = '–';
+    store.gateway = null;
+    return;
+  }
+  store.gateway = st;
+  const up = (st.backends||[]).filter(b=>b.up).map(b=>b.port+' · '+(b.version||'?'));
+  $('g-state').textContent = '运行中 · pid '+st.pid;
+  $('g-base').textContent = st.base_url || '–';
+  $('g-backend').textContent = up.length ? up.join('  /  ') : '无后端（8788 和 8899 都没应答）';
+  $('g-key').textContent = st.key_masked || '–';
+  $('g-count').textContent = (st.models||[]).length + ' 个';
+  $('g-aligned').textContent = ago(st.aligned_at)
+    + (st.align_error ? ' · 上次失败：'+st.align_error : '');
+  $('g-rule').value = st.free_rule || 'cost';
+  $('g-interval').value = (st.align_interval_s==null) ? 21600 : st.align_interval_s;
+  $('g-models').textContent = (st.models||[]).join('  ·  ') || '（空，点「立即对齐」）';
+  if(!gwProvider){
+    const p = await gwFetch('/__gateway/provider');
+    if(p.ok) gwProvider = p.body;
+  }
+  $('g-cfgbox').textContent = gwProvider ? gwSnippet(gwProvider) : '–';
+}
+
+$('g-start').onclick = async ()=>{
+  const r = await gwFetch('/__gateway/start', {method:'POST'});
+  const b = r.body || {};
+  if(b.ok){ toast('网关在 '+b.port+' 上'); loadGateway(); }
+  else toast('启动失败：'+(b.error||r.status));
+};
+$('g-copybase').onclick = ()=> gwCopy(store.gateway && store.gateway.base_url, '地址');
+$('g-copykey').onclick = async ()=>{
+  const r = await gwFetch('/__gateway/key');
+  gwCopy(r.body && r.body.key, 'API key');
+};
+$('g-align').onclick = async ()=>{
+  $('g-alignhint').textContent = '对齐中…';
+  const r = await gwFetch('/__gateway/align', {method:'POST'});
+  const b = r.body || {};
+  $('g-alignhint').textContent = b.ok
+    ? '对齐完成：'+b.models+' 个免费模型'
+    : '对齐失败：'+(b.error||r.status);
+  gwProvider = null;   // the provider block carries the model list
+  loadGateway();
+};
+$('g-saverule').onclick = async ()=>{
+  const body = JSON.stringify({
+    free_rule: $('g-rule').value,
+    align_interval_s: Number($('g-interval').value)||0,
+  });
+  const r = await gwFetch('/__gateway/settings', {method:'POST',
+    headers:{'content-type':'application/json'}, body:body});
+  const b = r.body || {};
+  toast(b.ok ? '设置已保存' : '保存失败：'+(b.error||r.status));
+  loadGateway();
+};
+$('g-install').onclick = async ()=>{
+  const r = await gwFetch('/__gateway/install', {method:'POST'});
+  const b = r.body || {};
+  $('g-installhint').textContent = b.ok
+    ? '已写入 '+b.path+(b.backup ? '，备份 '+b.backup.split('\\').pop() : '')+'。重启 opencode 后生效。'
+    : '写入失败：'+(b.error||r.status);
+  if(b.ok) toast('供应商已写入');
+};
+$('g-copyprovider').onclick = ()=> gwCopy($('g-cfgbox').textContent, '供应商配置');
+$('g-selftest').onclick = async ()=>{
+  $('g-probe').textContent = '请求中…';
+  const r = await gwFetch('/__gateway/selftest');
+  const b = r.body || {};
+  $('g-probe').textContent = b.ok
+    ? '上游接受 · HTTP '+b.status+' · '+b.ms+'ms'
+    : (b.verdict || b.error || ('HTTP '+r.status));
+  $('g-probehint').textContent = b.snippet
+    ? b.snippet.slice(0,220)
+    : (b.verdict || '');
+};
 
 /* ----------------------------- controls --------------------------------- */
 async function control(payload){

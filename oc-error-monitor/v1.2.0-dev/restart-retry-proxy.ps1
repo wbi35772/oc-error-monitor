@@ -44,6 +44,11 @@ New-Item -ItemType Directory -Path $rundir -Force | Out-Null
 if ([System.IO.Path]::GetFullPath($here) -ne [System.IO.Path]::GetFullPath($rundir)) {
     Copy-Item (Join-Path $here 'retry_proxy.py') $dst -Force
     if (Test-Path (Join-Path $here 'ui.html')) { Copy-Item (Join-Path $here 'ui.html') $ui -Force }
+    # The gateway is started by the dashboard on first use (POST
+    # /__gateway/start) and reads its code from this same directory, so it has
+    # to travel with the proxy or that button has nothing to run.
+    $gw = Join-Path $here 'gateway.py'
+    if (Test-Path $gw) { Copy-Item $gw (Join-Path $rundir 'gateway.py') -Force }
     # VERSION travels with the code, so the live instance reports the build it
     # actually came from rather than a value baked in at import time. It is
     # read from this version's own directory: the repository root carries the

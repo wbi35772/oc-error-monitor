@@ -128,6 +128,19 @@ RATE_BACKOFF = [2.0, 5.0, 9.0, 15.0, 25.0]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# Header capture for one investigation: RETRY_PROXY_DUMP_HEADERS=1 writes the
+# headers of every forwarded request to headers-dump.jsonl beside this file. It
+# is how the upstream's free-tier check gets identified: only a real client
+# request shows which header carries the identity.
+DUMP_HEADERS = os.environ.get("RETRY_PROXY_DUMP_HEADERS") == "1"
+HEADER_DUMP = os.path.join(HERE, "headers-dump.jsonl")
+
+# The gateway is its own process on its own port; it publishes the port here.
+# The dashboard is served by both, so a tab opened on either address shows the
+# same state.
+GATEWAY_STATE = os.path.join(HERE, "gateway.json")
+_gateway_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 def _read_version():
     """The version sits in VERSION at the repository root, and the staging
@@ -2304,6 +2317,92 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """
         _drain_and_exit(self.server)
 
+    # -- gateway passthrough ----------------------------------------------
+    # The gateway publishes its port in gateway.json. Requests to /__gateway/*
+    # arrive here whenever the dashboard was opened on the proxy's own port,
+    # and are relayed so both addresses show the same page state.
+    def _gateway_port(self):
+        try:
+            with open(GATEWAY_STATE, encoding="utf-8") as fh:
+                return int((json.load(fh) or {}).get("port") or 0)
+        except Exception:
+            return 0
+
+    def _gateway_state(self, port):
+        try:
+            with _gateway_opener.open(
+                "http://127.0.0.1:%d/__gateway/state" % port, timeout=1.5
+            ) as resp:
+                return json.loads(resp.read().decode("utf-8", "replace"))
+        except Exception:
+            return None
+
+    def _gateway_start(self):
+        port = self._gateway_port()
+        if port and self._gateway_state(port):
+            return self._send_json({"ok": True, "already": True, "port": port})
+        script = os.path.join(HERE, "gateway.py")
+        if not os.path.exists(script):
+            return self._send_json(
+                {"ok": False, "error": "gateway.py missing next to retry_proxy.py"}, 500
+            )
+        pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if not os.path.exists(pyw):
+            pyw = sys.executable
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: the gateway outlives this
+        # request and does not hold the caller's console open.
+        subprocess.Popen(
+            [pyw, script], cwd=HERE, creationflags=0x00000008 | 0x00000200,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        deadline = time.time() + 12
+        while time.time() < deadline:
+            port = self._gateway_port()
+            if port and self._gateway_state(port):
+                return self._send_json({"ok": True, "started": True, "port": port})
+            time.sleep(0.3)
+        return self._send_json({"ok": False, "error": "gateway did not answer in 12s"}, 500)
+
+    def _gateway(self, path, method, body):
+        if path == "/__gateway/start" and method == "POST":
+            return self._gateway_start()
+        port = self._gateway_port()
+        if not port or not self._gateway_state(port):
+            return self._send_json({
+                "ok": False,
+                "error": "gateway is not running",
+                "port": port or None,
+                "hint": "POST /__gateway/start, or run: python gateway.py",
+            }, 503)
+        req = urllib.request.Request(
+            "http://127.0.0.1:%d%s" % (port, path),
+            data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None,
+            method=method,
+        )
+        for header in ("Content-Type", "Accept"):
+            value = self.headers.get(header)
+            if value:
+                req.add_header(header, value)
+        try:
+            with _gateway_opener.open(req, timeout=60) as resp:
+                payload = resp.read()
+                status = resp.status
+                ctype = resp.headers.get("Content-Type", "application/json")
+        except urllib.error.HTTPError as exc:
+            payload = exc.read()
+            status = exc.code
+            ctype = exc.headers.get("Content-Type", "application/json")
+        except Exception as exc:
+            return self._send_json(
+                {"ok": False, "error": "gateway unreachable: %s" % exc, "port": port}, 502
+            )
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
     def _target(self):
         p = self.path
         if p.startswith("/__"):
@@ -2384,6 +2483,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/__control":
                 n = int(self.headers.get("Content-Length") or 0)
                 return self._control(self.rfile.read(n) if n else b"")
+            if path.startswith("/__gateway"):
+                n = int(self.headers.get("Content-Length") or 0)
+                return self._gateway(path, method,
+                                     self.rfile.read(n) if n else b"")
             if path == "/":
                 return self._send_json({
                     "service": "opencode retry proxy",
@@ -2421,6 +2524,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _proxy_request(self, method, target, body):
         hdrs = {k: v for k, v in self.headers.items() if k.lower() not in HOP}
         hdrs["Accept-Encoding"] = "identity"
+
+        # Off unless asked for: writes the exact headers a working client sends,
+        # which is the only way to learn what the upstream's free-tier check
+        # looks at. One file, beside the script, deleted after the answer is
+        # known.
+        if DUMP_HEADERS:
+            try:
+                record = {
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "path": self.path,
+                    "headers": hdrs,
+                    "body_bytes": len(body or b""),
+                }
+                if body:
+                    # Field names only for the content, the whole head of the
+                    # body otherwise: the gate is expected in an envelope field,
+                    # not in the conversation.
+                    try:
+                        parsed = json.loads(body.decode("utf-8"))
+                        record["body_keys"] = sorted(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__
+                        if isinstance(parsed, dict):
+                            record["body_head"] = {
+                                k: (v if k not in ("messages", "system", "tools") else "<%d>" % len(v))
+                                for k, v in parsed.items()
+                            }
+                    except Exception:
+                        record["body_raw_head"] = body[:400].decode("utf-8", "replace")
+                with open(HEADER_DUMP, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
 
         bump("requests")
         trail = []
