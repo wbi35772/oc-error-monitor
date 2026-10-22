@@ -255,6 +255,54 @@ def test_dry_run_writes_nothing():
     return failed
 
 
+def test_model_fallback():
+    failed = 0
+    saved = dict(gateway._state)
+    gateway._state["models"] = ["alpha-free", "beta-free", "gamma-free"]
+    try:
+        gateway._state["fallback_mode"] = "off"
+        gateway._state["pinned_model"] = None
+        failed += check("off: never rewrites",
+                        gateway._decide_fallback("any-model") == "any-model")
+        failed += check("off: even a verified model stays",
+                        gateway._decide_fallback("beta-free") == "beta-free")
+
+        gateway._state["fallback_mode"] = "manual"
+        gateway._state["pinned_model"] = "gamma-free"
+        failed += check("manual: rewrites to the pin",
+                        gateway._decide_fallback("any-model") == "gamma-free")
+        gateway._state["pinned_model"] = "does-not-exist"
+        failed += check("manual: unverified pin is ignored",
+                        gateway._decide_fallback("any-model") == "any-model")
+        gateway._state["pinned_model"] = None
+        failed += check("manual: no pin means no rewrite",
+                        gateway._decide_fallback("any-model") == "any-model")
+
+        gateway._state["fallback_mode"] = "auto"
+        failed += check("auto: verified model passes through",
+                        gateway._decide_fallback("beta-free") == "beta-free")
+        failed += check("auto: dead model falls back to the first verified",
+                        gateway._decide_fallback("zap-gone") == "alpha-free")
+        gateway._state["models"] = []
+        failed += check("auto: empty list means passthrough",
+                        gateway._decide_fallback("zap-gone") == "zap-gone")
+
+        gateway._state["models"] = ["alpha-free", "beta-free", "gamma-free"]
+        failed += check("rotate: after the first comes the second",
+                        gateway._next_free_model("alpha-free") == "beta-free")
+        failed += check("rotate: after the last wraps to the first",
+                        gateway._next_free_model("gamma-free") == "alpha-free")
+        failed += check("rotate: unknown model gets no target",
+                        gateway._next_free_model("zap-gone") is None)
+        gateway._state["models"] = ["alpha-free"]
+        failed += check("rotate: single model cannot rotate",
+                        gateway._next_free_model("alpha-free") is None)
+    finally:
+        gateway._state.clear()
+        gateway._state.update(saved)
+    return failed
+
+
 def main() -> int:
     gateway.load_state()
     failed = 0
@@ -263,6 +311,7 @@ def main() -> int:
         ("provider_block", test_provider_block),
         ("public_state", test_public_state),
         ("multi_key", test_multi_key),
+        ("model_fallback", test_model_fallback),
         ("pick_port", test_pick_port),
         ("selftest", test_selftest),
         ("install dry run", test_dry_run_writes_nothing),

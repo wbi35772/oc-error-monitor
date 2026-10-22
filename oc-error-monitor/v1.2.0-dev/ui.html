@@ -348,7 +348,7 @@
       <section class="card" style="grid-column:span 7">
         <h2>重试策略</h2>
         <div class="ctl-grid">
-          <label class="f">最大尝试次数
+          <label class="f">单请求重试次数（每次可换线路）
             <input id="f-attempts" type="number" min="1" max="10" step="1" />
           </label>
           <label class="f">超时（秒）
@@ -433,7 +433,7 @@
         <div class="btnrow">
           <button class="primary" id="g-align">立即对齐</button>
           <button id="g-saverule">保存设置</button>
-          <span class="meta" id="g-alignhint">来源 models.dev，只保留下载下来不需要付费的模型。</span>
+          <span class="meta" id="g-alignhint">来源 models.dev（官方目录）→ 逐个实测（走代理主径 + 直连源站双路一致才算数）→ 连续失败阈值后才除名。</span>
         </div>
         <div class="meta" id="g-models" style="margin-top:8px;max-height:110px;overflow:auto"></div>
       </section>
@@ -995,7 +995,7 @@ $('g-align').onclick = async ()=>{
   const r = await gwFetch('/__gateway/align', {method:'POST'});
   const b = r.body || {};
   $('g-alignhint').textContent = b.ok
-    ? '对齐完成：'+b.models+' 个免费模型'
+    ? '对齐完成：'+(b.count||0)+' 个免费模型'+(b.pending&&b.pending.length ? ' · '+b.pending.length+' 个待观察' : '')+(b.conflicts ? ' · '+b.conflicts+' 条双路分歧' : '')
     : '对齐失败：'+(b.error||r.status);
   gwProvider = null;   // the provider block carries the model list
   loadGateway();
@@ -1287,7 +1287,7 @@ loadNet();
     help.className = 'meta';
     help.style.cssText = 'grid-column:span 12;line-height:1.85;margin-top:2px';
     help.innerHTML = [
-      '<b>最大尝试次数</b>：同一个请求最多试几条线路。用完就把最后一次的错误交回客户端——客户端显示错误，点「继续」是一个新请求，重新计数。',
+      '<b>单请求重试次数 vs 单线路次数 vs 会话续跑——三码事</b>：这个数字是<b>同一个 HTTP 请求</b>的尝试预算；<b>每次尝试都会重新选线</b>（可能换完所有节点），所以它既不是“单个节点线路上的重试次数”，也不是“会话被中断后换节点续跑的次数”。会话里下一轮对话是<b>新请求</b>，预算重新计；流式已经开始吐字后再断，字节已发出，无法自动重试，只能重新发起。实际换线次数计入 switch（看板可查）。',
       '<b>超时（秒）</b>：单次尝试的上限。流式回答按「多久没有新数据」算，不是整段回答的总时长。',
       '<b>上游线路</b>：跟随自动 = 代理自己判断；强制 Clash = 只走代理组；强制直连 = 只走本机出口。自动在连续失败时会换一侧。',
       '<b>退避序列</b>：第 n 次重试前等几秒，按逗号顺序取，用完了重复最后一个值。',
@@ -1402,6 +1402,87 @@ loadNet();
     };
   }
   setTimeout(refreshKeys, 400);
+})();
+
+/* ------------------- model fallback controls (auto/manual) ---------------- */
+(function(){
+  const $ = id => document.getElementById(id);
+  const gw = $('v-gateway');
+  if(gw && !$('g-fallback-card')){
+    const card = document.createElement('section');
+    card.className = 'card';
+    card.id = 'g-fallback-card';
+    card.style.gridColumn = 'span 12';
+    card.innerHTML =
+      '<h2>模型降级（失效时谁顶上）</h2>' +
+      '<div class="btnrow" style="flex-wrap:wrap;align-items:center">' +
+        '<span class="k">模式</span><select id="g-fallback" style="min-width:250px">' +
+          '<option value="off">off · 不改写，原样转发</option>' +
+          '<option value="manual">manual · 一律改写到锁定的模型</option>' +
+          '<option value="auto">auto · 已失效的模型自动换下一个可用</option>' +
+        '</select>' +
+        '<span class="k">锁定为</span><select id="g-pinned" style="min-width:230px"></select>' +
+        '<button class="primary" id="g-savefallback">保存</button>' +
+      '</div>' +
+      '<div class="meta" style="line-height:1.9;margin-top:8px">' +
+        '<b>auto</b>：客户端要求一个已失效/未验证的模型时，网关改写到列表中可用的模型（改写经响应头 ' +
+        'X-Gateway-Model-From / X-Gateway-Model-To，日志记录 model_from→model_to）；上游再报 “Model is unavailable” 会按列表轮换再试，重试次数见下。' +
+        '<b>manual</b>：请求一律改写到「锁定为」选中的模型（锁定为空则不改写）。' +
+        '<b>off</b>：完全不碰模型名。<br>' +
+        '轮换重试次数：<input id="g-fbretries" type="number" min="0" max="3" style="width:60px"> ' +
+        '（0＝不改写也不轮换重试；auto 模式生效）。' +
+        '对齐除名阈值：<input id="g-removeafter" type="number" min="1" max="7" style="width:60px"> ' +
+        '轮 <b>连续一致</b> 才从列表除名——每次对齐都走两条网络路径（经 mihomo 的主径 + 直连源站），' +
+        '两条路都连续 N 轮说「Model is unavailable」才删，单线抖动只标 pending 不删（状态页可见 fails/pending）.' +
+      '</div>';
+    gw.appendChild(card);
+  }
+  function fillFallback(st){
+    const sel = $('g-pinned');
+    if(!sel) return;
+    const models = st.models || [];
+    sel.innerHTML = '<option value="">（不锁定）</option>' +
+      models.map(m => '<option value="' + m + '"' +
+        (m === st.pinned_model ? ' selected' : '') + '>' + m + '</option>').join('');
+    if(!models.includes(st.pinned_model || '')) sel.value = '';
+    const fb = $('g-fallback');
+    if(fb) fb.value = st.fallback_mode || 'off';
+    const nr = $('g-fbretries');
+    if(nr) nr.value = (st.fallback_retries == null ? 1 : st.fallback_retries);
+    const ra = $('g-removeafter');
+    if(ra) ra.value = (st.verify_remove_after == null ? 2 : st.verify_remove_after);
+  }
+  const baseLoad = window.loadGateway;
+  if(typeof baseLoad === 'function'){
+    window.loadGateway = async function(){
+      const out = await baseLoad.apply(this, arguments);
+      try{
+        const r = await gwFetch('/__gateway/state');
+        fillFallback(r.body || {});
+      }catch(e){}
+      return out;
+    };
+  }
+  const saveBtn = $('g-savefallback');
+  if(saveBtn){
+    saveBtn.onclick = async () => {
+      const body = {
+        fallback_mode: ($('g-fallback') || {}).value || 'off',
+        pinned_model: ($('g-pinned') || {}).value || null,
+        fallback_retries: Number(($('g-fbretries') || {}).value) || 0,
+        verify_remove_after: Number(($('g-removeafter') || {}).value) || 2,
+      };
+      const r = await gwFetch('/__gateway/settings', {method:'POST',
+        headers:{'content-type':'application/json'},
+        body: JSON.stringify(body)});
+      const b = r.body || {};
+      toast(b.ok ? '已保存' : '保存失败：' + (b.error || r.status));
+      if(b.ok && window.loadGateway) window.loadGateway();
+    };
+  }
+  setTimeout(function(){
+    try{ gwFetch('/__gateway/state').then(r => fillFallback(r.body || {})); }catch(e){}
+  }, 500);
 })();
 </script>
 </body>

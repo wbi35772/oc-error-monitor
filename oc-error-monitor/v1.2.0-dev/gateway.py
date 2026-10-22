@@ -98,6 +98,18 @@ DEFAULTS = {
     # exposed is whatever the upstream itself still serves on the free tier.
     "verify_models": True,
     "free_rule": "cost",
+    # Model fallback when a client asks for something the free tier cannot
+    # serve: "auto" rewrites to the next verified model, "manual" rewrites to
+    # pinned_model only when that is itself verified, "off" forwards the name
+    # untouched. Defaults are opt-in: nothing is rewritten until a mode is
+    # deliberately chosen in the dashboard.
+    "fallback_mode": "off",
+    "pinned_model": None,
+    "fallback_retries": 1,
+    # A model is only dropped from the live list after this many CONSECUTIVE
+    # align runs where BOTH routes call it gone. One flaky route, or one pass,
+    # is not evidence; models are flagged pending instead.
+    "verify_remove_after": 2,
     "created_at": None,
 }
 
@@ -509,18 +521,69 @@ def probe_model(model: str, port: int, timeout: float = 25.0) -> dict:
                 "snippet": repr(exc)[:160]}
 
 
+# The origin, for the second opinion. The primary route is the retry proxy -
+# the path real traffic takes; this one leaves the machine directly, so a dead
+# member of the local pool cannot make every model look dead.
+ORIGIN = "https://opencode.ai/inference/openai/v1"
+
+
+def probe_direct(model: str, timeout: float = 25.0) -> dict:
+    """Same probe as probe_model, but straight to the origin, no local hop."""
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "stream": False,
+    }).encode()
+    req = urllib.request.Request(
+        ORIGIN + "/chat/completions", data=body, method="POST"
+    )
+    for header, value in PROBE_HEADERS.items():
+        req.add_header(header, value)
+    started = time.time()
+    try:
+        with _local_opener.open(req, timeout=timeout) as resp:
+            resp.read(2048)
+            return {"status": resp.status, "verdict": "free", "route": "direct",
+                    "ms": int((time.time() - started) * 1000)}
+    except urllib.error.HTTPError as exc:
+        raw = exc.read(4096).decode("utf-8", "replace")
+        return {"status": exc.code, "verdict": _verdict(exc.code, raw),
+                "route": "direct",
+                "ms": int((time.time() - started) * 1000),
+                "snippet": raw[:160]}
+    except Exception as exc:
+        return {"status": 0, "verdict": "error", "route": "direct",
+                "ms": int((time.time() - started) * 1000),
+                "snippet": repr(exc)[:160]}
+
+
 def verify_models(ids: list, port: int) -> dict:
-    """Probe every candidate, a few at a time.
+    """Two routes, one verdict per model, at a polite pace.
 
     Four workers is deliberate: this is somebody else's free tier, and a burst
     of 46 parallel requests is how an account gets rate limited for reasons
     that have nothing to do with the models.
+
+    primary goes through the retry proxy - the path real traffic takes. When
+    primary says "unavailable", the same model is asked again over a second
+    network path (straight to the origin). Only when BOTH routes call it gone
+    does the result carry agree=gone; anything else stays inconclusive,
+    because our own network being broken is not evidence a model died.
     """
     out = {}
     lock = threading.Lock()
 
     def work(mid):
-        result = probe_model(mid, port)
+        result = dict(probe_model(mid, port), route="proxy")
+        if result.get("verdict") == "gone":
+            other = probe_direct(mid)
+            result["agree"] = ("gone" if other.get("verdict") == "gone"
+                               else "conflict")
+            if result["agree"] == "conflict":
+                result["other"] = {"verdict": other.get("verdict"),
+                                   "status": other.get("status"),
+                                   "snippet": (other.get("snippet") or "")[:100]}
         with lock:
             out[mid] = result
 
@@ -563,18 +626,47 @@ def align(force: bool = False) -> dict:
         candidates.sort()
 
         status_map = {}
+        pending = []
         kept = candidates
+        threshold = max(1, int(_state.get("verify_remove_after") or 1))
         backend = pick_backend()
         if _state.get("verify_models", True) and backend:
-            status_map = verify_models(candidates, backend)
-            kept = [m for m in candidates
-                    if status_map.get(m, {}).get("verdict") == "free"]
-            inconclusive = [m for m in candidates if status_map.get(m, {}).get("verdict")
-                            in ("error", "unknown", "rate_limited")]
-            # The service refusing to answer is not evidence that a model is
-            # gone. If nothing was confirmed and everything failed, keep the
-            # catalogue list rather than ship an empty one.
-            if not kept and len(inconclusive) == len(candidates):
+            fresh = verify_models(candidates, backend)
+            old_status = _state.get("model_status") or {}
+            served = set(_state.get("models") or [])
+            kept = []
+            for mid in candidates:
+                entry = dict(fresh.get(mid) or {"verdict": "error"})
+                verdict = entry.get("verdict")
+                # Count a death only when BOTH routes said "unavailable" —
+                # one dead local hop or one region-gated reply is not
+                # evidence. Verified models reset their streak immediately.
+                confirmed = verdict == "gone" and entry.get("agree") == "gone"
+                if confirmed:
+                    fails = int((old_status.get(mid) or {}).get("fails") or 0) + 1
+                    entry.pop("agree", None)
+                    entry.pop("other", None)
+                else:
+                    fails = 0
+                    entry.pop("agree", None)
+                entry["fails"] = fails
+                if verdict == "free":
+                    entry["pending"] = False
+                    kept.append(mid)
+                elif mid in served and fails < threshold:
+                    # Still served, but the evidence is stacking up.
+                    entry["pending"] = bool(fails)
+                    if fails:
+                        pending.append(mid)
+                    kept.append(mid)
+                status_map[mid] = entry
+
+            certain = [m for m in candidates
+                       if status_map.get(m, {}).get("verdict")
+                       in ("free", "paid", "gone")]
+            # Every route answering "dunno" means our network is the problem,
+            # not the models: keep the original list instead of emptying it.
+            if not certain and not kept:
                 raise RuntimeError("model verification could not reach the upstream")
 
         before = set(_state.get("models") or [])
@@ -596,6 +688,10 @@ def align(force: bool = False) -> dict:
             "candidates": len(candidates),
             "added": sorted(after - before),
             "removed": sorted(before - after),
+            "pending": pending,
+            "conflicts": sum(1 for e in status_map.values()
+                             if e.get("agree") == "conflict"),
+            "threshold": threshold,
             "verdicts": counts,
             "took_ms": int((time.time() - started) * 1000),
             "source": ALIGN_URL,
@@ -642,6 +738,42 @@ def align_loop(stop: threading.Event) -> None:
             print("gateway: align loop: %r" % (exc,))
         if stop.wait(60.0):
             return
+
+
+def _decide_fallback(model: str | None) -> str | None:
+    """Which model should actually be sent upstream, per the fallback mode.
+
+    off     -> the client's own model, never rewritten
+    manual  -> pinned_model, but only while that is itself verified free
+    auto    -> the client's model when it is verified free; otherwise the
+               first verified one (the request would otherwise die with
+               "Model is unavailable")
+
+    Nothing rewrites silently forever: the response carries
+    X-Gateway-Model-From / X-Gateway-Model-To whenever a rewrite happened.
+    """
+    mode = str(_state.get("fallback_mode") or "off").lower()
+    free = _state.get("models") or []
+    if mode == "off" or not model:
+        return model
+    if mode == "manual":
+        pinned = _state.get("pinned_model")
+        return pinned if pinned in free else model
+    if mode == "auto":
+        return model if model in free else (free[0] if free else model)
+    return model
+
+
+def _next_free_model(current: str | None) -> str | None:
+    """The next verified model after `current`, wrapping around the list."""
+    free = _state.get("models") or []
+    if len(free) < 2:
+        return None
+    try:
+        idx = free.index(current or "")
+    except ValueError:
+        return None
+    return free[(idx + 1) % len(free)]
 
 
 # --------------------------------------------------------------------------
@@ -997,6 +1129,26 @@ class Handler(BaseHTTPRequestHandler):
                 changed["backend_override"] = _state["backend_override"]
                 global _backend_cache
                 _backend_cache = None
+            if "fallback_mode" in act:
+                mode = str(act["fallback_mode"]).lower()
+                if mode not in ("off", "manual", "auto"):
+                    return self._error(400, "fallback_mode must be off, manual or auto")
+                _state["fallback_mode"] = mode
+                changed["fallback_mode"] = mode
+            if "pinned_model" in act:
+                pin = act.get("pinned_model") or None
+                if pin and pin not in (_state.get("models") or []):
+                    return self._error(400, "pinned_model is not a verified free model: %s" % pin)
+                _state["pinned_model"] = pin
+                changed["pinned_model"] = pin
+            if "fallback_retries" in act:
+                _state["fallback_retries"] = max(0, min(3, int(act["fallback_retries"])))
+                changed["fallback_retries"] = _state["fallback_retries"]
+            if "verify_remove_after" in act:
+                # Consecutive align runs, both routes agreeing, before a model
+                # is actually dropped. 1 = first confirmed death removes it.
+                _state["verify_remove_after"] = max(1, min(7, int(act["verify_remove_after"])))
+                changed["verify_remove_after"] = _state["verify_remove_after"]
             save_state()
             note({"kind": "settings", "changed": changed})
             return self._json({"ok": True, "changed": changed,
@@ -1044,22 +1196,70 @@ class Handler(BaseHTTPRequestHandler):
 
         url = "http://%s:%d%s" % (HOST, backend, path)
         started = time.time()
-        req = urllib.request.Request(url, data=body, method=method)
-        for k, v in headers.items():
-            req.add_header(k, v)
-        try:
-            resp = _local_opener.open(req, timeout=900)
-        except urllib.error.HTTPError as exc:
-            resp = exc
-        except Exception as exc:
-            note({"kind": "relay", "path": path, "backend": backend,
-                  "error": repr(exc)})
-            return self._error(502, "backend %d did not answer: %s"
-                               % (backend, exc), "upstream_error")
+
+        # ---- model fallback ------------------------------------------------
+        # Only chat completions carry a model; everything else passes through
+        # untouched. Nothing has been sent to the client yet, so rewriting
+        # here, and retrying upstream before the first byte, stays invisible.
+        model_from = None
+        model_to = None
+        wire = body
+        req_json = None
+        is_chat = "chat/completions" in path
+        if is_chat and method in ("POST", "PUT", "PATCH") and body:
+            try:
+                req_json = json.loads(body.decode("utf-8"))
+            except Exception:
+                req_json = None
+            if isinstance(req_json, dict) and req_json.get("model"):
+                model_from = str(req_json["model"])
+                model_to = _decide_fallback(model_from)
+                if model_to and model_to != model_from:
+                    req_json["model"] = model_to
+                    wire = json.dumps(req_json).encode()
+
+        resp = None
+        err_body = b""
+        for hop in range(int(_state.get("fallback_retries") or 0) + 1):
+            req = urllib.request.Request(url, data=wire, method=method)
+            for k, v in headers.items():
+                req.add_header(k, v)
+            try:
+                resp = _local_opener.open(req, timeout=900)
+                break
+            except urllib.error.HTTPError as exc:
+                # auto-only escape hatch: upstream says this model is gone
+                # and we still have verified models to rotate through.
+                can_retry = (
+                    req_json is not None
+                    and str(_state.get("fallback_mode") or "off") == "auto"
+                    and hop < int(_state.get("fallback_retries") or 0)
+                )
+                if can_retry:
+                    try:
+                        err_body = exc.read() or b""
+                    except Exception:
+                        err_body = b""
+                if not can_retry:
+                    resp = exc
+                    break
+                nxt = _next_free_model(req_json.get("model"))
+                if not nxt or b"unavailable" not in err_body.lower():
+                    resp = exc
+                    break
+                req_json["model"] = nxt
+                model_to = nxt
+                wire = json.dumps(req_json).encode()
+            except Exception as exc:
+                note({"kind": "relay", "path": path, "backend": backend,
+                      "error": repr(exc)})
+                return self._error(502, "backend %d did not answer: %s"
+                                   % (backend, exc), "upstream_error")
 
         ctype = resp.headers.get("Content-Type") or ""
         status = getattr(resp, "status", 200) or 200
-        streaming = "text/event-stream" in ctype
+        streaming = ("text/event-stream" in ctype
+                     and not isinstance(resp, urllib.error.HTTPError))
 
         self.send_response(status)
         self.send_header("Content-Type", ctype or "application/octet-stream")
@@ -1067,6 +1267,9 @@ class Handler(BaseHTTPRequestHandler):
         if resp.headers.get("Cache-Control"):
             self.send_header("Cache-Control", resp.headers["Cache-Control"])
         self.send_header("X-Gateway-Backend", str(backend))
+        if model_to and model_to != model_from:
+            self.send_header("X-Gateway-Model-From", model_from or "")
+            self.send_header("X-Gateway-Model-To", model_to)
         if streaming:
             self.send_header("Transfer-Encoding", "chunked")
             self.send_header("X-Accel-Buffering", "no")
@@ -1089,11 +1292,16 @@ class Handler(BaseHTTPRequestHandler):
                 resp.close()
             note({"kind": "relay", "path": path, "backend": backend,
                   "status": status, "stream": True, "chunks": chunks,
+                  "model_from": model_from, "model_to": model_to,
                   "ms": int((time.time() - started) * 1000)})
             return
 
         payload = resp.read()
         resp.close()
+        # A pre-read (retry probe) already ate an error body that never
+        # triggered a retry; hand the stashed bytes back instead of air.
+        if not payload and err_body:
+            payload = err_body
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         try:
@@ -1102,6 +1310,7 @@ class Handler(BaseHTTPRequestHandler):
             pass
         note({"kind": "relay", "path": path, "backend": backend,
               "status": status, "stream": False, "bytes": len(payload),
+              "model_from": model_from, "model_to": model_to,
               "ms": int((time.time() - started) * 1000)})
 
     # POST bodies for control endpoints are read in _control/_action; relay
