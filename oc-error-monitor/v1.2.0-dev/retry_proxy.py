@@ -41,6 +41,7 @@ Endpoints
     GET  /__pool               candidate members (mihomo group + DIRECT), L0
     GET  /__route              ledger, health and the member in use, L1-L3
     POST /__route              {"action": "pin|strategy|clear|switch"}
+    GET  /__ratelimit          429 attribution: issuer, scope, evidence
     GET  /__health             {"ok": true}
 
 Durable state
@@ -714,6 +715,242 @@ def backoff(attempt, cls=None):
         seq = SETTINGS["backoff"] or BACKOFF
         delay = seq[min(attempt, len(seq) - 1)]
     return delay * (0.85 + random.random() * 0.3)
+
+
+# ---------------------------------------------------------------------------
+# Who actually said 429
+# ---------------------------------------------------------------------------
+#
+# A 429 on this path can come from three different places, and the right
+# reaction differs for each:
+#   edge      Cloudflare's own limiter, per exit IP: another node helps.
+#   account   opencode's allowance for the free tier: waiting is required.
+#   model     the inference backend's per-model concurrency / token budget:
+#             another model is the reliable answer, another node is a gamble.
+# The log used to say RATE and stop there, so a throttled model looked like a
+# sick node and a sick node looked like a throttled account. attribute_rate()
+# reads the body and headers that came with the refusal and writes down who,
+# which scope, and how sure it is - with the evidence kept beside the verdict,
+# so a wrong guess is visible in /__ratelimit instead of hiding in a heuristic.
+
+RATE_EVENTS_MAX = 200
+
+_RATE_LOCK = threading.Lock()
+_RATE_EVENTS = deque(maxlen=RATE_EVENTS_MAX)
+_RATE_AGG = {
+    "total": 0,
+    "by_issuer": {},
+    "by_scope": {},
+    "by_model": {},
+    "by_member": {},
+    "with_hint": 0,
+    "max_hint_s": 0.0,
+    "cooled": 0,
+    "first_at": None,
+    "last_at": None,
+}
+
+_CF_MARKS = ("cloudflare", "error code: 1015", "error 1015",
+             "error code: 1020", "error 1020", "checking if the site",
+             "just a moment")
+_CF_SCOPE_MARKS = ("too many requests", "rate limit", "ray id", "cf-ray")
+_IP_MARKS = ("abusive traffic", "from this ip address", "ip reputation")
+_MODEL_MARKS = ("tokens per minute", "token per minute", " tpm", " rpm",
+                "requests per minute", "concurrent request", "concurrency",
+                "model is overloaded", "model overloaded", "capacity")
+_ACCOUNT_MARKS = ("quota", "daily limit", "monthly limit", "free tier",
+                  "free-tier", "freetiererror", "insufficient credit",
+                  "balance")
+
+
+def _json_error_fields(text):
+    """Flatten an error envelope into a lowercased string of its fields.
+
+    Upstream bodies wrap the useful words differently every time
+    ({"error":{"type":...,"message":...}}, {"type":...}, {"message":...}), so
+    gather whatever is there instead of matching one shape.
+    """
+    try:
+        obj = json.loads(text)
+    except Exception:
+        return ""
+    parts = []
+
+    def walk(node, depth=0):
+        if depth > 4:
+            return
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("type", "message", "code", "reason", "error"):
+                    if isinstance(value, (str, int, float)):
+                        parts.append(str(value))
+                walk(value, depth + 1)
+        elif isinstance(node, list):
+            for item in node[:4]:
+                walk(item, depth + 1)
+
+    walk(obj)
+    return " ".join(parts).lower()
+
+
+def attribute_rate(status, headers, body, route=None, request_model=None,
+                   attempt=0):
+    """Decide who issued this refusal, at what scope, and how sure we are.
+
+    The returned dict is stored verbatim in the event ring and echoed in the
+    request log, so the evidence travels with the conclusion.
+    """
+    raw = body or b""
+    text = raw.decode("utf-8", "replace") if raw else ""
+    low = " ".join(text.split()).lower()
+    hay = (low + " " + _json_error_fields(text)).strip()
+
+    header_map = {}
+    try:
+        header_map = {str(k).lower(): str(v) for k, v in headers.items()}
+    except Exception:
+        header_map = {}
+    cf_ray = header_map.get("cf-ray")
+    retry_after = retry_after_seconds(header_map.get("retry-after"))
+
+    issuer, scope, confidence = "unknown", "unknown", "low"
+    why = []
+
+    # 1. Cloudflare's own limiter: an edge answer, or the CF error codes.
+    cf_body = any(mark in hay for mark in _CF_MARKS)
+    cf_limited = cf_body and any(mark in hay for mark in _CF_SCOPE_MARKS)
+    if cf_limited or header_map.get("cf-mitigated"):
+        issuer, scope = "cloudflare", "route"
+        confidence = "high" if cf_limited else "medium"
+        why.append("cf-body" if cf_body else "cf-mitigated")
+    # 1b. opencode's own IP-reputation refusal (the famous FreeTierError with
+    #     "abusive traffic from this IP"). It is per exit IP but historically
+    #     transient per request, so it records as route-scoped with medium
+    #     confidence and deliberately does NOT trigger a cooldown: retrying the
+    #     same node is what the measured behaviour says works.
+    elif any(mark in hay for mark in _IP_MARKS):
+        issuer, scope, confidence = "opencode", "route", "medium"
+        why.append("ip-wording")
+    # 2. The account allowance: quota / free-tier wording, usually JSON.
+    elif any(mark in hay for mark in _ACCOUNT_MARKS):
+        issuer = "opencode" if ("opencode" in hay or "free tier" in hay
+                                or "freetiererror" in hay) else "unknown"
+        scope, confidence = "account", "medium"
+        why.append("quota-wording")
+    # 3. The model's own budget: TPM / concurrency wording, or a per-model
+    #    x-ratelimit-* header on the refusal.
+    elif any(mark in hay for mark in _MODEL_MARKS):
+        issuer = "upstream" if (any(k.startswith("x-ratelimit")
+                                    for k in header_map)
+                                or "upstream" in hay) else "opencode"
+        scope, confidence = "model", "medium"
+        why.append("tpm-wording")
+    elif any(k.startswith("x-ratelimit") for k in header_map):
+        issuer, scope, confidence = "upstream", "model", "medium"
+        why.append("x-ratelimit-header")
+    # 4. A model id in the refusal is a weak but useful scope hint.
+    if scope == "unknown" and request_model and request_model.lower() in hay:
+        scope, confidence = "model", "low"
+        why.append("model-named")
+    if cf_ray:
+        why.append("cf-ray")
+
+    ev = {
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "ts": time.time(),
+        "status": status,
+        "attempt": int(attempt or 0),
+        "issuer": issuer,
+        "scope": scope,
+        "confidence": confidence,
+        "why": ",".join(why) or "no-marker",
+        "retry_after": retry_after,
+        "model": request_model or None,
+        "member": (route or {}).get("name"),
+        "group": (route or {}).get("group"),
+        "direct": bool((route or {}).get("direct")),
+        "snippet": snippet(raw, 180),
+        "cf_ray": cf_ray,
+        "ratelimit": {k: v for k, v in header_map.items()
+                      if k.startswith("x-ratelimit")},
+    }
+    with _RATE_LOCK:
+        _RATE_EVENTS.append(ev)
+        agg = _RATE_AGG
+        agg["total"] = int(agg["total"]) + 1
+        for field, key in (("by_issuer", issuer), ("by_scope", scope)):
+            bucket = agg[field]
+            bucket[key] = int(bucket.get(key) or 0) + 1
+        if ev["model"]:
+            bucket = agg["by_model"]
+            bucket[ev["model"]] = int(bucket.get(ev["model"]) or 0) + 1
+        if ev["member"]:
+            bucket = agg["by_member"]
+            bucket[ev["member"]] = int(bucket.get(ev["member"]) or 0) + 1
+        if retry_after:
+            agg["with_hint"] = int(agg["with_hint"]) + 1
+            agg["max_hint_s"] = max(float(agg["max_hint_s"]), float(retry_after))
+        if not agg["first_at"]:
+            agg["first_at"] = ev["at"]
+        agg["last_at"] = ev["at"]
+    return ev
+
+
+def rate_snapshot(limit=50):
+    """The /__ratelimit answer: aggregates plus the newest events, newest first."""
+    limit = max(1, min(RATE_EVENTS_MAX, int(limit or 50)))
+    with _RATE_LOCK:
+        events = list(_RATE_EVENTS)[-limit:][::-1]
+        agg = {
+            "total": int(_RATE_AGG["total"]),
+            "by_issuer": dict(_RATE_AGG["by_issuer"]),
+            "by_scope": dict(_RATE_AGG["by_scope"]),
+            "by_model": dict(_RATE_AGG["by_model"]),
+            "by_member": dict(_RATE_AGG["by_member"]),
+            "with_hint": int(_RATE_AGG["with_hint"]),
+            "max_hint_s": round(float(_RATE_AGG["max_hint_s"]), 1),
+            "cooled": int(_RATE_AGG["cooled"]),
+            "first_at": _RATE_AGG["first_at"],
+            "last_at": _RATE_AGG["last_at"],
+            "buffered": len(_RATE_EVENTS),
+            "capacity": RATE_EVENTS_MAX,
+        }
+    return {"ok": True, "agg": agg, "events": events}
+
+
+def rate_cool(route, seconds, ev=None):
+    """Cool a node that the edge throttled, in the ledger's own vocabulary.
+
+    Only called for high-confidence route-scoped refusals: a Cloudflare
+    per-IP limit follows the exit IP, so keeping the node in rotation just
+    spends attempts on the same wall. Model- and account-scoped limits do NOT
+    come here - another exit IP rarely fixes a per-model budget, and quietly
+    burning nodes on it is how the pool gets blamed for the gateway's limits.
+    """
+    name = (route or {}).get("name")
+    if not name:
+        return False
+    now = time.time()
+    seconds = max(5.0, min(float(seconds or 120.0), 900.0))
+    with _route_lock:
+        entry = _decay(_entry(name), now)
+        until = now + seconds
+        if until > float(entry.get("cooldown_until") or 0):
+            entry["cooldown_until"] = until
+        entry["last_throttle"] = {
+            "at": now,
+            "s": round(seconds, 1),
+            "issuer": (ev or {}).get("issuer"),
+            "scope": (ev or {}).get("scope"),
+        }
+        if _route_state.get("current") == name:
+            _route_state["current"] = None
+            _route_state["switches"] = int(_route_state.get("switches") or 0) + 1
+        _route_dirty[0] = True
+    _route_maybe_save()
+    with _RATE_LOCK:
+        _RATE_AGG["cooled"] = int(_RATE_AGG["cooled"]) + 1
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -2560,6 +2797,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     n = int(self.headers.get("Content-Length") or 0)
                     return self._send_json(route_action(self.rfile.read(n) if n else b""))
                 return self._send_json(route_status())
+            if path == "/__ratelimit":
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    limit = int((qs.get("limit") or ["50"])[0])
+                except ValueError:
+                    limit = 50
+                return self._send_json(rate_snapshot(limit))
             if path == "/__logs":
                 qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 return self._send_json(
@@ -2597,6 +2841,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "net": "/__net",
                     "pool": "/__pool",
                     "route": "/__route",
+                    "ratelimit": "/__ratelimit",
                     "logs": "/__logs",
                     "events": "/__events",
                     "health": "/__health",
@@ -2729,6 +2974,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "snippet": snippet(last_body),
                     }
                 )
+                if cls in ("RATE", "IP_REP"):
+                    ev = attribute_rate(status, resp.headers, last_body, route,
+                                        _peek_model(body), attempt + 1)
+                    detail[-1]["rate"] = {k: ev[k] for k in
+                                          ("issuer", "scope", "confidence",
+                                           "retry_after", "why")}
+                    if ev["scope"] == "route" and ev["confidence"] == "high":
+                        rate_cool(route, ev.get("retry_after") or 120.0, ev)
                 if attempt + 1 < max_attempts and should_retry(cls, status):
                     pause(attempt, cls, hint)
                     continue
@@ -2761,6 +3014,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "snippet": snippet(last_body),
                     }
                 )
+                if cls in ("RATE", "IP_REP"):
+                    ev = attribute_rate(last_status, e.headers if e.headers else None,
+                                        last_body, route, _peek_model(body),
+                                        attempt + 1)
+                    detail[-1]["rate"] = {k: ev[k] for k in
+                                          ("issuer", "scope", "confidence",
+                                           "retry_after", "why")}
+                    if ev["scope"] == "route" and ev["confidence"] == "high":
+                        rate_cool(route, ev.get("retry_after") or 120.0, ev)
                 if attempt + 1 < max_attempts and should_retry(cls, last_status):
                     pause(attempt, cls, hint)
                     continue

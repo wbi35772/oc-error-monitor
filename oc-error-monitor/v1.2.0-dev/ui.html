@@ -1485,5 +1485,69 @@ loadNet();
   }, 500);
 })();
 </script>
+<script>
+/* --- 429 attribution: who is limiting us, and what to do about it ------- */
+(function(){
+  const host = document.getElementById('v-route');
+  if(!host || document.getElementById('rt-rate-card')) return;
+  const card = document.createElement('section');
+  card.className = 'card';
+  card.style.gridColumn = 'span 12';
+  card.id = 'rt-rate-card';
+  card.innerHTML =
+    '<h2>429 归因（谁在限流）</h2>' +
+    '<div class="meta" id="rt-rate-sum" style="line-height:1.8">–</div>' +
+    '<div class="scroll" style="margin-top:8px"><table>' +
+      '<thead><tr><th>时间</th><th>状态</th><th>来源</th><th>范围</th><th>把握</th><th>Retry-After</th><th>模型</th><th>出口成员</th><th>依据</th></tr></thead>' +
+      '<tbody id="rt-rate-rows"><tr><td colspan="9" class="meta">还没有 429</td></tr></tbody>' +
+    '</table></div>' +
+    '<div class="meta" style="margin-top:8px;line-height:1.7">' +
+      '<b>来源</b>：cloudflare = 边缘按出口 IP 限流（换节点有效，高置信时自动冷却该成员）· opencode = 免费层额度 · upstream = 模型后端 · unknown = 没认出来。' +
+      '<b>范围</b>：route = 出口 IP 被限 · model = 某模型的并发/TPM · account = 账号/免费层配额。' +
+      'model 与 account 级只记录不换线——换节点治不了按模型/账号计的限流。' +
+    '</div>';
+  host.appendChild(card);
+
+  const $id = id => document.getElementById(id);
+  const barc = bucket => {
+    const keys = Object.keys(bucket || {});
+    if(!keys.length) return '–';
+    return keys.sort((a,b)=>bucket[b]-bucket[a]).map(k=>k+' '+bucket[k]).join(' · ');
+  };
+  const hhmmss = ts => {
+    if(!ts) return '–';
+    const d = new Date(ts*1000), p = n => String(n).padStart(2,'0');
+    return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+  };
+
+  async function loadRate(){
+    try{
+      const j = await api('/__ratelimit?limit=40');
+      const a = j.agg || {};
+      $id('rt-rate-sum').innerHTML =
+        '累计 <b>' + (a.total||0) + '</b> 次 · 来源：' + esc(barc(a.by_issuer)) +
+        ' · 范围：' + esc(barc(a.by_scope)) +
+        ' · 带 Retry-After ' + (a.with_hint||0) + ' 次（最长 ' + (a.max_hint_s||0) + 's）' +
+        ' · route 级自动冷却 ' + (a.cooled||0) + ' 次' +
+        (a.last_at ? ' · 最近 ' + esc(a.last_at.replace('T',' ')) : '');
+      const rows = (j.events || []).map(e =>
+        '<tr><td>' + hhmmss(e.ts) + '</td><td>' + esc(e.status) +
+        '</td><td>' + esc(e.issuer) + '</td><td>' + esc(e.scope) +
+        '</td><td>' + esc(e.confidence) + '</td><td>' +
+        (e.retry_after == null ? '–' : esc(e.retry_after)) +
+        '</td><td>' + esc(e.model || '–') +
+        '</td><td>' + esc(e.member || (e.direct ? 'DIRECT' : '–')) +
+        '</td><td class="meta">' + esc(e.why || '') +
+        (e.cf_ray ? ' · ' + esc(e.cf_ray) : '') + '</td></tr>').join('');
+      $id('rt-rate-rows').innerHTML = rows ||
+        '<tr><td colspan="9" class="meta">还没有 429</td></tr>';
+    }catch(e){ /* other cards already surface the failure */ }
+  }
+
+  window.loadRate = loadRate;
+  setInterval(function(){ if(store.view === 'route') loadRate(); }, 6000);
+  if(store.view === 'route') loadRate();
+})();
+</script>
 </body>
 </html>
